@@ -17,6 +17,7 @@
     "@nuxt/hints": "1.0.0-alpha.6",
     "@nuxt/icon": "2.2.1",
     "@nuxt/image": "2.0.0",
+    "ofetch": "^1.5.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/vue-table": "^8.21.3",
     "@types/node": "^25.2.0",
