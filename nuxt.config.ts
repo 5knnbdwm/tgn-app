@@ -5,6 +5,12 @@ export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
 
+  runtimeConfig: {
+    pipelineServiceUrl: process.env.PIPELINE_SERVICE_URL ?? "",
+    pipelineServiceApiKey: process.env.PIPELINE_SERVICE_API_KEY ?? "",
+    pipelineProxyApiKey: process.env.PIPELINE_PROXY_API_KEY ?? "",
+  },
+
   modules: [
     "@nuxt/eslint",
     "@nuxt/hints",

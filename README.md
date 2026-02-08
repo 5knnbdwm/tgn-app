@@ -89,6 +89,29 @@ Nuxt now provides internal PDF conversion routes:
 `convex/publications/publicationActions.ts` calls these routes via `PDF_SERVICE_URL` (fallback: `SITE_URL`).
 If `PDF_SERVICE_API_KEY` is set, requests must include `X-API-Key`.
 
+## Python Pipeline Proxy (Single Public Entry Point)
+
+Nuxt now exposes a proxy for the Python service:
+
+- `GET/POST /api/pipeline/<path>`
+- Examples:
+  - `GET /api/pipeline/health`
+  - `POST /api/pipeline/ocr/page`
+  - `POST /api/pipeline/segment/page`
+  - `POST /api/pipeline/classify/lead`
+  - `POST /api/pipeline/enrich/lead`
+
+Nuxt runtime env:
+
+- `PIPELINE_SERVICE_URL=https://<python-service-domain>`
+- `PIPELINE_SERVICE_API_KEY=<python-service-api-key>` (optional)
+- `PIPELINE_PROXY_API_KEY=<proxy-api-key>` (optional, recommended)
+
+Convex env for pipeline calls:
+
+- `PIPELINE_SERVICE_URL=https://<your-web-domain>/api/pipeline`
+- `PIPELINE_SERVICE_API_KEY=<proxy-api-key>` (if proxy auth is enabled)
+
 ## Railway: Single Project, Two Services
 
 Use one Railway project with two services from this same repo:
