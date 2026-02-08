@@ -1,6 +1,10 @@
 <script setup lang="ts">
 const { state } = useConvexConnectionState();
 
+const runtimeConfig = useRuntimeConfig();
+
+console.log("convex url", runtimeConfig.public.convex.url);
+
 // Debug: log all state changes
 watch(
   state,
