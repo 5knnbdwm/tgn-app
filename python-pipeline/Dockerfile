@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtesseract-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY python-pipeline/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
-COPY app ./app
+COPY python-pipeline/app ./app
 
 EXPOSE 8080
 
