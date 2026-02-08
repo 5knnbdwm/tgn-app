@@ -23,7 +23,7 @@ export function assertApiKey(event: H3Event) {
   });
 }
 
-export async function fetchPdfBuffer(pdfUrl: string) {
+export async function fetchPdfBuffer(pdfUrl: string): Promise<Uint8Array> {
   if (!pdfUrl || typeof pdfUrl !== "string") {
     throw createError({
       statusCode: 400,
@@ -39,5 +39,5 @@ export async function fetchPdfBuffer(pdfUrl: string) {
     });
   }
 
-  return Buffer.from(await response.arrayBuffer());
+  return new Uint8Array(await response.arrayBuffer());
 }

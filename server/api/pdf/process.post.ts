@@ -1,17 +1,20 @@
 import { fromBuffer } from "pdf2pic";
 import { createError, readBody } from "h3";
 import sharp from "sharp";
-import { ProcessRequest, assertApiKey, fetchPdfBuffer } from "./_shared";
+import type { ProcessRequest } from "./_shared";
+import { assertApiKey, fetchPdfBuffer } from "./_shared";
 
 export default defineEventHandler(async (event) => {
   assertApiKey(event);
   const body = await readBody<ProcessRequest>(event);
-  const pdfBuffer = await fetchPdfBuffer(body.pdfUrl);
+  const pdfBytes = await fetchPdfBuffer(body.pdfUrl);
+  const pdfBuffer = Buffer.from(pdfBytes);
 
   if (!Array.isArray(body.uploadUrls) || body.uploadUrls.length === 0) {
     throw createError({
       statusCode: 400,
-      statusMessage: "Invalid request body: uploadUrls must be a non-empty array.",
+      statusMessage:
+        "Invalid request body: uploadUrls must be a non-empty array.",
     });
   }
 
