@@ -1,120 +1,47 @@
-import {
-  createError,
-  getHeader,
-  getMethod,
-  getQuery,
-  getRouterParam,
-  readRawBody,
-  setResponseStatus,
-} from "h3";
-
 function trimTrailingSlash(value: string) {
   return value.replace(/\/$/, "");
 }
 
 export default defineEventHandler(async (event) => {
-  const startedAt = Date.now();
+  const path = event.context.params?.path || "";
+  const method = event.method;
   const config = useRuntimeConfig(event);
+  const proxyApiKey = config.pipelineProxyApiKey;
   const baseUrl = trimTrailingSlash(config.pipelineServiceUrl);
-  if (!baseUrl) {
-    console.error(
-      "[pipeline/proxy] missing PIPELINE_SERVICE_URL runtime config.",
-    );
+
+  if (baseUrl.length === 0) {
+    console.error(`[pipeline/proxy] Missing pipeline service URL`);
     throw createError({
       statusCode: 500,
-      statusMessage: "Missing PIPELINE_SERVICE_URL runtime config.",
+      message: "Missing pipeline service URL",
     });
   }
 
-  const proxyApiKey = config.pipelineProxyApiKey;
-  if (proxyApiKey) {
-    const incomingApiKey = getHeader(event, "x-api-key");
-    if (incomingApiKey !== proxyApiKey) {
-      console.error(
-        "[pipeline/proxy] unauthorized. invalid or missing API key.",
-      );
-      throw createError({
-        statusCode: 401,
-        statusMessage: "Unauthorized. Invalid or missing API key.",
-      });
-    }
-  }
-
-  const method = getMethod(event);
-  const pathParam = getRouterParam(event, "path");
-  const path = Array.isArray(pathParam)
-    ? pathParam.filter(Boolean).join("/")
-    : (pathParam ?? "");
-  if (!path) {
-    console.error("[pipeline/proxy] missing pipeline path.");
+  if (proxyApiKey.length === 0) {
+    console.error(`[pipeline/proxy] Missing pipeline proxy API key`);
     throw createError({
-      statusCode: 400,
-      statusMessage: "Missing pipeline path.",
+      statusCode: 500,
+      message: "Missing pipeline proxy API key",
     });
   }
 
-  const query = new URLSearchParams(
-    Object.entries(getQuery(event))
-      .filter(([, value]) => value !== undefined && value !== null)
-      .flatMap(([key, value]) =>
-        Array.isArray(value)
-          ? value.map((v) => [key, String(v)] as [string, string])
-          : [[key, String(value)] as [string, string]],
-      ),
-  );
-  const upstreamUrl = `${baseUrl}/${path}${query.size ? `?${query}` : ""}`;
-  console.info("[pipeline/proxy] forwarding request", {
-    method,
-    path,
-    upstreamUrl,
-  });
+  const apiKey = getHeader(event, "x-api-key");
+  if (apiKey !== proxyApiKey) {
+    console.error(`[pipeline/proxy] Unauthorized request to /${path}`);
+    throw createError({ statusCode: 401, message: "Invalid API key" });
+  }
 
-  const upstreamApiKey = config.pipelineServiceApiKey;
-  const contentType = getHeader(event, "content-type");
-  const accept = getHeader(event, "accept");
-  const body =
-    method === "GET" || method === "HEAD"
-      ? undefined
-      : await readRawBody(event);
+  const upstreamUrl = `${baseUrl}/${path}`;
 
-  let response: Response;
+  console.log(`[pipeline/proxy] ${method} /${path}`);
+
   try {
-    response = await fetch(upstreamUrl, {
-      method,
-      headers: {
-        ...(contentType ? { "content-type": contentType } : {}),
-        ...(accept ? { accept } : {}),
-        ...(upstreamApiKey
-          ? { "x-api-key": upstreamApiKey }
-          : getHeader(event, "x-api-key")
-            ? { "x-api-key": getHeader(event, "x-api-key") as string }
-            : {}),
-      },
-      body,
-    });
+    return await proxyRequest(event, upstreamUrl);
   } catch (error) {
-    console.error("[pipeline/proxy] upstream request failed", {
-      method,
-      path,
-      upstreamUrl,
-      durationMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
+    console.error(`[pipeline/proxy] Error proxying to ${upstreamUrl}:`, error);
+    throw createError({
+      statusCode: 502,
+      message: "Upstream service error",
     });
-    throw error;
   }
-
-  console.info("[pipeline/proxy] upstream response", {
-    method,
-    path,
-    status: response.status,
-    statusText: response.statusText,
-    durationMs: Date.now() - startedAt,
-  });
-
-  const responseContentType = response.headers.get("content-type") ?? "";
-  setResponseStatus(event, response.status, response.statusText);
-  if (responseContentType.includes("application/json")) {
-    return response.json();
-  }
-  return response.text();
 });
