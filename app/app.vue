@@ -1,21 +1,18 @@
 <script setup lang="ts">
 const { state } = useConvexConnectionState();
 
-const runtimeConfig = useRuntimeConfig();
-
-console.log("convex url", runtimeConfig.public.convex.url);
-
 // Debug: log all state changes
 watch(
   state,
   (newState) => {
-    console.log("Connection state:", {
-      connected: newState.isWebSocketConnected,
-      retries: newState.connectionRetries,
-      pendingMutations: newState.inflightMutations,
-      pendingActions: newState.inflightActions,
-      oldestRequest: newState.timeOfOldestInflightRequest,
-    });
+    // console.log("Connection state:", {
+    //   connected: newState.isWebSocketConnected,
+    //   retries: newState.connectionRetries,
+    //   pendingMutations: newState.inflightMutations,
+    //   pendingActions: newState.inflightActions,
+    //   oldestRequest: newState.timeOfOldestInflightRequest,
+    // });
+    console.log("Connection state", newState.isWebSocketConnected);
   },
   { immediate: true, deep: true },
 );

@@ -19,9 +19,6 @@ export default defineNuxtConfig({
   convex: {
     url: process.env.CONVEX_URL,
     permissions: true,
-    logging: {
-      enabled: "debug",
-    },
   },
 
   css: ["./app/assets/css/main.css"],
