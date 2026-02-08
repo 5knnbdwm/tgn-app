@@ -209,3 +209,8 @@ def enrich_lead(payload: EnrichLeadRequest) -> EnrichLeadResponse:
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {"status": "ok"}
+
+
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {"service": "tgn-python-pipeline", "status": "ok"}
