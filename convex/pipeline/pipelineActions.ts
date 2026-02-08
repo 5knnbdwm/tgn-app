@@ -1,10 +1,21 @@
 import { ConvexError, v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { assertBbox, overlaps } from "../model";
 
 type WordBox = { text: string; bbox: number[] };
 type Segment = { bbox: number[] };
+type PublicationPage = {
+  pageNumber: number;
+  pageImageStorageId: Id<"_storage">;
+  pageWidth: number;
+  pageHeight: number;
+};
+type PipelineResult = { createdLeadCount: number };
+type PageResult =
+  | { ok: true; createdLeadCount: number; pageNumber: number }
+  | { ok: false; createdLeadCount: number; pageNumber: number; error: string };
 
 function getPositiveIntEnv(name: string, fallback: number) {
   const raw = process.env[name];
@@ -32,7 +43,7 @@ async function mapWithConcurrency<T, R>(
   items: readonly T[],
   concurrency: number,
   mapper: (item: T, index: number) => Promise<R>,
-) {
+): Promise<R[]> {
   const limit = Math.max(1, concurrency);
   const results: R[] = new Array(items.length);
   let index = 0;
@@ -73,7 +84,7 @@ async function postPipeline<T>(
 async function postPipelineWithRetry<T>(
   path: string,
   payload: Record<string, unknown>,
-) {
+): Promise<T> {
   const attempts = getPositiveIntEnv("PIPELINE_HTTP_MAX_ATTEMPTS", 2);
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -100,7 +111,10 @@ function wordsInSegment(
     .join(" ");
 }
 
-async function runPipeline(ctx: any, publicationId: any) {
+async function runPipeline(
+  ctx: any,
+  publicationId: Id<"publications">,
+): Promise<PipelineResult> {
   const pageConcurrency = getPositiveIntEnv("PIPELINE_PAGE_CONCURRENCY", 2);
   const segmentConcurrency = getPositiveIntEnv("PIPELINE_SEGMENT_CONCURRENCY", 4);
 
@@ -115,14 +129,14 @@ async function runPipeline(ctx: any, publicationId: any) {
     { publicationId, status: "LEAD_PROCESSING" },
   );
 
-  const pages = await ctx.runQuery(
+  const pages = (await ctx.runQuery(
     internal.publications.publicationQueries.getPublicationPagesInternal,
     { publicationId },
-  );
-  const pageResults = await mapWithConcurrency(
+  )) as PublicationPage[];
+  const pageResults = await mapWithConcurrency<PublicationPage, PageResult>(
     pages,
     pageConcurrency,
-    async (page) => {
+    async (page): Promise<PageResult> => {
       try {
         const imageUrl = await ctx.storage.getUrl(page.pageImageStorageId);
         if (!imageUrl) {
@@ -180,10 +194,10 @@ async function runPipeline(ctx: any, publicationId: any) {
           (segment) => Array.isArray(segment.bbox) && segment.bbox.length === 4,
         );
 
-        const segmentLeadCounts = await mapWithConcurrency(
+        const segmentLeadCounts = await mapWithConcurrency<Segment, number>(
           segments,
           segmentConcurrency,
-          async (segment) => {
+          async (segment): Promise<number> => {
             const bbox = assertBbox(segment.bbox);
             const segmentText = wordsInSegment(wordBoxes, bbox);
             const classifyResult = await postPipelineWithRetry<{
@@ -266,7 +280,10 @@ async function runPipeline(ctx: any, publicationId: any) {
 
         return {
           ok: true as const,
-          createdLeadCount: segmentLeadCounts.reduce((sum, n) => sum + n, 0),
+          createdLeadCount: segmentLeadCounts.reduce(
+            (sum: number, n: number) => sum + n,
+            0,
+          ),
           pageNumber: page.pageNumber,
         };
       } catch (error) {
@@ -286,7 +303,7 @@ async function runPipeline(ctx: any, publicationId: any) {
   );
 
   const createdLeadCount = pageResults.reduce(
-    (sum, pageResult) => sum + pageResult.createdLeadCount,
+    (sum: number, pageResult: PageResult) => sum + pageResult.createdLeadCount,
     0,
   );
 
@@ -295,7 +312,7 @@ async function runPipeline(ctx: any, publicationId: any) {
     { publicationId },
   );
 
-  const failedPages = pageResults.filter((page) => !page.ok);
+  const failedPages = pageResults.filter((page: PageResult) => !page.ok);
   if (failedPages.length > 0) {
     throw new ConvexError(
       `Failed processing ${failedPages.length}/${pageResults.length} pages`,
@@ -309,7 +326,7 @@ export const runPublicationPipelineInternal = internalAction({
   args: {
     publicationId: v.id("publications"),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<PipelineResult> => {
     try {
       return await runPipeline(ctx, args.publicationId);
     } catch (error) {
