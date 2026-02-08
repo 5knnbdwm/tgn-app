@@ -5,8 +5,14 @@ import type { ProcessRequest } from "./_shared";
 import { assertApiKey, fetchPdfBuffer } from "./_shared";
 
 export default defineEventHandler(async (event) => {
+  const startedAt = Date.now();
   assertApiKey(event);
   const body = await readBody<ProcessRequest>(event);
+  console.info("[pdf/process] request received", {
+    pdfUrl: body.pdfUrl,
+    uploadUrlCount: Array.isArray(body.uploadUrls) ? body.uploadUrls.length : 0,
+  });
+
   const pdfBytes = await fetchPdfBuffer(body.pdfUrl);
   const pdfBuffer = Buffer.from(pdfBytes);
 
@@ -26,6 +32,7 @@ export default defineEventHandler(async (event) => {
   });
 
   const images = await convert.bulk(-1, { responseType: "buffer" });
+  console.info("[pdf/process] pages rendered", { pageCount: images.length });
   if (body.uploadUrls.length < images.length) {
     throw createError({
       statusCode: 400,
@@ -45,6 +52,10 @@ export default defineEventHandler(async (event) => {
           })
           .webp({ quality: 85 })
           .toBuffer();
+        console.info("[pdf/process] converted page to webp", {
+          page: i + 1,
+          webpBytes: webp.length,
+        });
 
         const metadata = await sharp(webp).metadata();
         if (!metadata.width || !metadata.height) return null;
@@ -71,6 +82,13 @@ export default defineEventHandler(async (event) => {
           });
         }
 
+        console.info("[pdf/process] uploaded page", {
+          page: i + 1,
+          storageId: json.storageId,
+          width: metadata.width,
+          height: metadata.height,
+        });
+
         return {
           storageId: json.storageId,
           width: metadata.width,
@@ -80,6 +98,11 @@ export default defineEventHandler(async (event) => {
       }),
     )
   ).filter((row): row is NonNullable<typeof row> => row !== null);
+
+  console.info("[pdf/process] completed", {
+    processedPages: results.length,
+    durationMs: Date.now() - startedAt,
+  });
 
   return { results };
 });

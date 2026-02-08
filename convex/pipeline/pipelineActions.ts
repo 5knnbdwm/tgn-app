@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { action, internalAction } from "../_generated/server";
-import { api, internal } from "../_generated/api";
+import { internalAction } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { assertBbox, overlaps } from "../model";
 
 type WordBox = { text: string; bbox: number[] };
@@ -32,13 +32,16 @@ async function postPipeline<T>(
   });
   if (!response.ok) {
     throw new ConvexError(
-      `Pipeline request failed ${path}: ${response.status} ${response.statusText}`,
+      `Pipeline request failed ${baseUrl}${path}: ${response.status} ${response.statusText}`,
     );
   }
   return response.json() as Promise<T>;
 }
 
-function wordsInSegment(words: WordBox[], bbox: [number, number, number, number]) {
+function wordsInSegment(
+  words: WordBox[],
+  bbox: [number, number, number, number],
+) {
   return words
     .filter((word) => word.bbox.length === 4)
     .filter((word) => overlaps(assertBbox(word.bbox), bbox))
@@ -47,9 +50,12 @@ function wordsInSegment(words: WordBox[], bbox: [number, number, number, number]
 }
 
 async function runPipeline(ctx: any, publicationId: any) {
-  await ctx.runMutation(internal.publications.publicationMutations.clearAiLeads, {
-    publicationId,
-  });
+  await ctx.runMutation(
+    internal.publications.publicationMutations.clearAiLeads,
+    {
+      publicationId,
+    },
+  );
   await ctx.runMutation(
     internal.publications.publicationMutations.updatePublicationStatus,
     { publicationId, status: "LEAD_PROCESSING" },
@@ -64,7 +70,9 @@ async function runPipeline(ctx: any, publicationId: any) {
   for (const page of pages) {
     const imageUrl = await ctx.storage.getUrl(page.pageImageStorageId);
     if (!imageUrl) {
-      throw new ConvexError(`Could not resolve page image URL for page ${page.pageNumber}`);
+      throw new ConvexError(
+        `Could not resolve page image URL for page ${page.pageNumber}`,
+      );
     }
 
     const ocrResult = await postPipeline<{
@@ -79,30 +87,39 @@ async function runPipeline(ctx: any, publicationId: any) {
       page_height: page.pageHeight,
     });
 
-    const wordBoxes = (ocrResult.word_boxes ?? []).filter((word) =>
-      Array.isArray(word.bbox) && word.bbox.length === 4 && typeof word.text === "string",
+    const wordBoxes = (ocrResult.word_boxes ?? []).filter(
+      (word) =>
+        Array.isArray(word.bbox) &&
+        word.bbox.length === 4 &&
+        typeof word.text === "string",
     );
 
-    await ctx.runMutation(internal.publications.publicationMutations.upsertPageOcr, {
-      publicationId,
-      pageNumber: page.pageNumber,
-      engine:
-        ocrResult.engine === "TEXTRACT" || ocrResult.engine === "OTHER"
-          ? ocrResult.engine
-          : "TESSERACT",
-      version: ocrResult.version,
-      wordBoxes,
-      plainText: wordBoxes.map((word) => word.text).join(" "),
-    });
+    await ctx.runMutation(
+      internal.publications.publicationMutations.upsertPageOcr,
+      {
+        publicationId,
+        pageNumber: page.pageNumber,
+        engine:
+          ocrResult.engine === "TEXTRACT" || ocrResult.engine === "OTHER"
+            ? ocrResult.engine
+            : "TESSERACT",
+        version: ocrResult.version,
+        wordBoxes,
+        plainText: wordBoxes.map((word) => word.text).join(" "),
+      },
+    );
 
-    const segmentResult = await postPipeline<{ segments?: Segment[] }>("/segment/page", {
-      publication_id: publicationId,
-      page_number: page.pageNumber,
-      image_url: imageUrl,
-      page_width: page.pageWidth,
-      page_height: page.pageHeight,
-      word_boxes: wordBoxes,
-    });
+    const segmentResult = await postPipeline<{ segments?: Segment[] }>(
+      "/segment/page",
+      {
+        publication_id: publicationId,
+        page_number: page.pageNumber,
+        image_url: imageUrl,
+        page_width: page.pageWidth,
+        page_height: page.pageHeight,
+        word_boxes: wordBoxes,
+      },
+    );
 
     const segments = (segmentResult.segments ?? []).filter(
       (segment) => Array.isArray(segment.bbox) && segment.bbox.length === 4,
@@ -190,13 +207,6 @@ async function runPipeline(ctx: any, publicationId: any) {
 
   return { createdLeadCount };
 }
-
-export const runPublicationPipeline = action({
-  args: {
-    publicationId: v.id("publications"),
-  },
-  handler: async (ctx, args) => runPipeline(ctx, args.publicationId),
-});
 
 export const runPublicationPipelineInternal = internalAction({
   args: {

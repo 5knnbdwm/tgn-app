@@ -13,6 +13,7 @@ function trimTrailingSlash(value: string) {
 }
 
 export default defineEventHandler(async (event) => {
+  const startedAt = Date.now();
   const config = useRuntimeConfig(event);
   const baseUrl = trimTrailingSlash((config.pipelineServiceUrl ?? "").trim());
   if (!baseUrl) {
@@ -55,6 +56,11 @@ export default defineEventHandler(async (event) => {
       ),
   );
   const upstreamUrl = `${baseUrl}/${path}${query.size ? `?${query}` : ""}`;
+  console.info("[pipeline/proxy] forwarding request", {
+    method,
+    path,
+    upstreamUrl,
+  });
 
   const upstreamApiKey = (config.pipelineServiceApiKey ?? "").trim();
   const contentType = getHeader(event, "content-type");
@@ -62,18 +68,38 @@ export default defineEventHandler(async (event) => {
   const body =
     method === "GET" || method === "HEAD" ? undefined : await readRawBody(event);
 
-  const response = await fetch(upstreamUrl, {
+  let response: Response;
+  try {
+    response = await fetch(upstreamUrl, {
+      method,
+      headers: {
+        ...(contentType ? { "content-type": contentType } : {}),
+        ...(accept ? { accept } : {}),
+        ...(upstreamApiKey
+          ? { "x-api-key": upstreamApiKey }
+          : getHeader(event, "x-api-key")
+            ? { "x-api-key": getHeader(event, "x-api-key") as string }
+            : {}),
+      },
+      body,
+    });
+  } catch (error) {
+    console.error("[pipeline/proxy] upstream request failed", {
+      method,
+      path,
+      upstreamUrl,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+
+  console.info("[pipeline/proxy] upstream response", {
     method,
-    headers: {
-      ...(contentType ? { "content-type": contentType } : {}),
-      ...(accept ? { accept } : {}),
-      ...(upstreamApiKey
-        ? { "x-api-key": upstreamApiKey }
-        : getHeader(event, "x-api-key")
-          ? { "x-api-key": getHeader(event, "x-api-key") as string }
-          : {}),
-    },
-    body,
+    path,
+    status: response.status,
+    statusText: response.statusText,
+    durationMs: Date.now() - startedAt,
   });
 
   const responseContentType = response.headers.get("content-type") ?? "";

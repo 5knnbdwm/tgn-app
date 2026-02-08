@@ -4,7 +4,11 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 
 function getPdfServiceBaseUrl() {
-  const baseUrl = (process.env.PDF_SERVICE_URL || process.env.SITE_URL || "").trim();
+  const baseUrl = (
+    process.env.PDF_SERVICE_URL ||
+    process.env.SITE_URL ||
+    ""
+  ).trim();
   if (!baseUrl) {
     throw new Error("Missing PDF_SERVICE_URL (or SITE_URL) env variable");
   }
@@ -33,17 +37,14 @@ export const enqueuePublicationProcessing = internalAction({
       }
 
       // 1. Get page count
-      const { pageCount } = await fetch(
-        `${serviceBaseUrl}/api/pdf/analyze`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": process.env.PDF_SERVICE_API_KEY || "",
-          },
-          body: JSON.stringify({ pdfUrl }),
+      const { pageCount } = await fetch(`${serviceBaseUrl}/api/pdf/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": process.env.PDF_SERVICE_API_KEY || "",
         },
-      ).then((r) => r.json());
+        body: JSON.stringify({ pdfUrl }),
+      }).then((r) => r.json());
 
       // 2. Generate upload URLs
       const uploadUrls = await Promise.all(
@@ -52,23 +53,18 @@ export const enqueuePublicationProcessing = internalAction({
           .map(async () => await ctx.storage.generateUploadUrl()),
       );
 
-      console.log("uploadUrls", uploadUrls);
-
       // 3. Process and upload
-      const { results } = (await fetch(
-        `${serviceBaseUrl}/api/pdf/process`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": process.env.PDF_SERVICE_API_KEY || "",
-          },
-          body: JSON.stringify({
-            pdfUrl,
-            uploadUrls,
-          }),
+      const { results } = (await fetch(`${serviceBaseUrl}/api/pdf/process`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": process.env.PDF_SERVICE_API_KEY || "",
         },
-      ).then((r) => r.json())) as {
+        body: JSON.stringify({
+          pdfUrl,
+          uploadUrls,
+        }),
+      }).then((r) => r.json())) as {
         results: {
           storageId: Id<"_storage">;
           width: number;
@@ -76,8 +72,6 @@ export const enqueuePublicationProcessing = internalAction({
           page: number;
         }[];
       };
-
-      console.log("results", results);
 
       // 4. Create publication pages
       await Promise.all(
