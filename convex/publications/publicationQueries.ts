@@ -47,17 +47,35 @@ export const getPage = query({
     const page = await ctx.db
       .query("publicationPages")
       .withIndex("by_publicationId_pageNumber", (q) =>
-        q.eq("publicationId", args.publicationId).eq("pageNumber", args.pageNumber),
+        q
+          .eq("publicationId", args.publicationId)
+          .eq("pageNumber", args.pageNumber),
       )
       .first();
     if (!page) return null;
     const leads = await ctx.db
       .query("leads")
       .withIndex("by_publicationId_pageNumber", (q) =>
-        q.eq("publicationId", args.publicationId).eq("pageNumber", args.pageNumber),
+        q
+          .eq("publicationId", args.publicationId)
+          .eq("pageNumber", args.pageNumber),
       )
       .collect();
     return { page, leads: leads.filter((lead) => !lead.isDeleted) };
+  },
+});
+
+export const getPagesForPublication = query({
+  args: {
+    publicationId: v.id("publications"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("publicationPages")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
+      .collect();
   },
 });
 
@@ -70,7 +88,9 @@ export const getPageOcr = query({
     return ctx.db
       .query("pageOcr")
       .withIndex("by_publicationId_pageNumber", (q) =>
-        q.eq("publicationId", args.publicationId).eq("pageNumber", args.pageNumber),
+        q
+          .eq("publicationId", args.publicationId)
+          .eq("pageNumber", args.pageNumber),
       )
       .first();
   },

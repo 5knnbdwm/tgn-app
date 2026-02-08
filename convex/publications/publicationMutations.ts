@@ -8,6 +8,10 @@ import {
 } from "../model";
 import { internal } from "../_generated/api";
 
+function derivePublicationName(fileName: string) {
+  return fileName.replace(/\.[^/.]+$/, "").trim();
+}
+
 export const createPublicationUpload = mutation({
   args: {
     fileStorageId: v.id("_storage"),
@@ -20,8 +24,12 @@ export const createPublicationUpload = mutation({
     }
 
     const ts = nowTs();
+    const publicationName = derivePublicationName(args.fileName);
     const createdPublication = await ctx.db.insert("publications", {
       name: args.fileName,
+      metadata: {
+        publicationName,
+      },
       status: "PAGE_PROCESSING" as PublicationStatus,
       sourceType: "PDF" as SourceType,
       publicationFileStorageId: args.fileStorageId,
