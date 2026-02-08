@@ -1,0 +1,14 @@
+.git
+.gitignore
+.DS_Store
+.env.local
+.vscode
+
+node_modules
+.nuxt
+.output
+
+old-codebase
+python-pipeline
+
+*.log

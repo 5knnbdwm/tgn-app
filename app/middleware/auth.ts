@@ -1,0 +1,13 @@
+export default defineNuxtRouteMiddleware(() => {
+  const { isAuthenticated, isPending } = useConvexAuth();
+
+  // Wait for auth to load
+  if (isPending.value) {
+    return;
+  }
+
+  // Redirect to login if not authenticated
+  if (!isAuthenticated.value) {
+    return navigateTo("/signin");
+  }
+});
