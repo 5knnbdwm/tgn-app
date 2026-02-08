@@ -5,8 +5,8 @@ import { AnalyzeRequest, assertApiKey, fetchPdfBuffer } from "./_shared";
 export default defineEventHandler(async (event) => {
   assertApiKey(event);
   const body = await readBody<AnalyzeRequest>(event);
-  const pdfBuffer = await fetchPdfBuffer(body.pdfUrl);
+  const pdfBytes = await fetchPdfBuffer(body.pdfUrl);
 
-  const document = await getDocument({ data: pdfBuffer }).promise;
+  const document = await getDocument({ data: pdfBytes, disableWorker: true }).promise;
   return { pageCount: document.numPages };
 });

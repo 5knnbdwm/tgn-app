@@ -12,7 +12,7 @@ FROM oven/bun:1 AS runner
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends graphicsmagick imagemagick \
+  && apt-get install -y --no-install-recommends graphicsmagick imagemagick ghostscript \
   && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
