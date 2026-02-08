@@ -26,8 +26,6 @@ SITE_URL=http://localhost:3000
 CONVEX_SITE_URL=https://<deployment>.convex.site
 
 # Optional external integrations (keep crawlers/lambdas as-is)
-PDF_SERVICE_URL=http://localhost:3000
-PDF_SERVICE_API_KEY=your-shared-secret
 TGN_PDF_TO_IMAGE_ENDPOINT=
 TGN_OCR_ENDPOINT=
 TGN_SEGMENTOR_ENDPOINT=
@@ -91,13 +89,13 @@ This keeps existing crawler systems external while ingesting into the new Convex
 
 ## PDF Conversion Endpoint
 
-Nuxt now provides internal PDF conversion routes:
+PDF split/render now runs in the Python pipeline service (memory-safe page chunks):
 
-- `POST /api/pdf/analyze` with `{ pdfUrl }` -> `{ pageCount }`
-- `POST /api/pdf/process` with `{ pdfUrl, uploadUrls }` -> `{ results }`
+- `POST /api/pipeline/pdf/analyze` with `{ pdf_url }` -> `{ page_count }`
+- `POST /api/pipeline/pdf/process` with
+  `{ pdf_url, upload_urls, start_page, end_page }` -> `{ results }`
 
-`convex/publications/publicationActions.ts` calls these routes via `PDF_SERVICE_URL` (fallback: `SITE_URL`).
-If `PDF_SERVICE_API_KEY` is set, requests must include `X-API-Key`.
+`convex/publications/publicationActions.ts` calls these endpoints via `PIPELINE_SERVICE_URL`.
 
 ## Python Pipeline Proxy (Single Public Entry Point)
 
@@ -105,6 +103,8 @@ Nuxt now exposes a proxy for the Python service:
 
 - `GET/POST /api/pipeline/<path>`
 - Examples:
+  - `POST /api/pipeline/pdf/analyze`
+  - `POST /api/pipeline/pdf/process`
   - `GET /api/pipeline/health`
   - `POST /api/pipeline/ocr/page`
   - `POST /api/pipeline/segment/page`
@@ -121,6 +121,12 @@ Convex env for pipeline calls:
 
 - `PIPELINE_SERVICE_URL=https://<your-web-domain>/api/pipeline`
 - `PIPELINE_SERVICE_API_KEY=<proxy-api-key>` (if proxy auth is enabled)
+- `PDF_UPLOAD_BATCH_SIZE=20` (optional, page chunk size)
+- `PDF_UPLOAD_MAX_ATTEMPTS=3` (optional, chunk retry attempts)
+- `PAGE_MUTATION_CONCURRENCY=8` (optional, parallel Convex page-row writes)
+- `PIPELINE_PAGE_CONCURRENCY=2` (optional, parallel page OCR/segment workers)
+- `PIPELINE_SEGMENT_CONCURRENCY=4` (optional, parallel segment classify/enrich workers)
+- `PIPELINE_HTTP_MAX_ATTEMPTS=2` (optional, retry for pipeline HTTP calls)
 
 ## Railway: Single Project, Two Services
 
@@ -134,7 +140,6 @@ Use one Railway project with two services from this same repo:
   - `SITE_URL=https://<your-web-domain>`
   - `CONVEX_URL=https://<deployment>.convex.cloud`
   - `CONVEX_SITE_URL=https://<deployment>.convex.site`
-  - `PDF_SERVICE_API_KEY=<shared-secret>`
 
 2. `convex-deploy` service (Convex deployment worker)
 
@@ -143,11 +148,6 @@ Use one Railway project with two services from this same repo:
 - Required env:
   - `CONVEX_DEPLOY_KEY=<your-convex-deploy-key>`
 - Command: default image command is already `bunx convex deploy --typecheck disable`
-
-Also set in Convex deployment env:
-
-- `PDF_SERVICE_URL=https://<your-web-domain>`
-- `PDF_SERVICE_API_KEY=<shared-secret>`
 
 ## Migration Notes (Old -> New)
 

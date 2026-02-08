@@ -4,6 +4,8 @@ This service handles OCR, segmentation, lead classification, and lead enrichment
 
 ## Endpoints
 
+- `POST /pdf/analyze`
+- `POST /pdf/process`
 - `POST /ocr/page`
 - `POST /segment/page`
 - `POST /classify/lead`
@@ -33,4 +35,3 @@ docker run --rm -p 8080:8080 --env-file .env tgn-python-pipeline
 If `PIPELINE_API_KEY` is set, requests must include header:
 
 `x-api-key: <PIPELINE_API_KEY>`
-

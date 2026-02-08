@@ -4,6 +4,7 @@ from io import BytesIO
 from typing import Any
 
 import cv2
+import fitz
 import numpy as np
 import pytesseract
 import requests
@@ -20,12 +21,173 @@ def _require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def _request_timeout_seconds() -> int:
+    return int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
+
+
 def _download_image(image_url: str) -> np.ndarray:
-    timeout = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
-    response = requests.get(image_url, timeout=timeout)
+    response = requests.get(image_url, timeout=_request_timeout_seconds())
     response.raise_for_status()
     image = Image.open(BytesIO(response.content)).convert("RGB")
     return np.array(image)
+
+
+def _download_pdf(pdf_url: str) -> bytes:
+    response = requests.get(pdf_url, timeout=_request_timeout_seconds())
+    response.raise_for_status()
+    return response.content
+
+
+def _pdf_render_dpi() -> int:
+    return int(os.getenv("PDF_RENDER_DPI", "150"))
+
+
+def _pdf_target_width() -> int:
+    return int(os.getenv("PDF_TARGET_WIDTH", "1200"))
+
+
+def _pdf_webp_quality() -> int:
+    return int(os.getenv("PDF_WEBP_QUALITY", "85"))
+
+
+class PdfAnalyzeRequest(BaseModel):
+    pdf_url: str
+
+
+class PdfAnalyzeResponse(BaseModel):
+    page_count: int
+
+
+class PdfProcessRequest(BaseModel):
+    pdf_url: str
+    upload_urls: list[str]
+    start_page: int | None = None
+    end_page: int | None = None
+    target_width: int | None = None
+    webp_quality: int | None = None
+    render_dpi: int | None = None
+
+
+class PdfProcessResult(BaseModel):
+    storage_id: str
+    width: int
+    height: int
+    page: int
+
+
+class PdfProcessResponse(BaseModel):
+    results: list[PdfProcessResult]
+
+
+def _open_pdf_document(pdf_url: str) -> fitz.Document:
+    try:
+        pdf_bytes = _download_pdf(pdf_url)
+    except requests.RequestException as error:
+        raise HTTPException(status_code=502, detail=f"Failed to download PDF: {error}") from error
+
+    try:
+        return fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as error:  # pragma: no cover - library-specific parse failures
+        raise HTTPException(status_code=400, detail="Could not parse PDF") from error
+
+
+@app.post("/pdf/analyze", response_model=PdfAnalyzeResponse, dependencies=[Depends(_require_api_key)])
+def pdf_analyze(payload: PdfAnalyzeRequest) -> PdfAnalyzeResponse:
+    document = _open_pdf_document(payload.pdf_url)
+    try:
+        return PdfAnalyzeResponse(page_count=document.page_count)
+    finally:
+        document.close()
+
+
+@app.post("/pdf/process", response_model=PdfProcessResponse, dependencies=[Depends(_require_api_key)])
+def pdf_process(payload: PdfProcessRequest) -> PdfProcessResponse:
+    if not payload.upload_urls:
+        raise HTTPException(status_code=400, detail="upload_urls must be a non-empty array")
+
+    document = _open_pdf_document(payload.pdf_url)
+    try:
+        page_count = document.page_count
+        if page_count == 0:
+            return PdfProcessResponse(results=[])
+
+        start_page = payload.start_page or 1
+        end_page = payload.end_page or page_count
+
+        if start_page < 1 or end_page < start_page or end_page > page_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid page range start_page={start_page} end_page={end_page} for page_count={page_count}",
+            )
+
+        expected_pages = end_page - start_page + 1
+        if len(payload.upload_urls) < expected_pages:
+            raise HTTPException(
+                status_code=400,
+                detail="upload_urls must contain at least one URL per processed page",
+            )
+
+        quality = min(100, max(1, payload.webp_quality or _pdf_webp_quality()))
+        dpi = max(72, payload.render_dpi or _pdf_render_dpi())
+        zoom = dpi / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        max_width = max(1, payload.target_width or _pdf_target_width())
+
+        results: list[PdfProcessResult] = []
+
+        for idx, page_number in enumerate(range(start_page, end_page + 1)):
+            page = document.load_page(page_number - 1)
+            pix = page.get_pixmap(matrix=matrix, alpha=False)
+            image = Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
+
+            if image.width > max_width:
+                target_height = max(1, int(image.height * (max_width / image.width)))
+                image = image.resize((max_width, target_height), Image.Resampling.LANCZOS)
+
+            output = BytesIO()
+            image.save(output, format="WEBP", quality=quality, method=6)
+            webp_bytes = output.getvalue()
+
+            upload_url = payload.upload_urls[idx]
+            try:
+                upload_response = requests.post(
+                    upload_url,
+                    headers={"content-type": "image/webp"},
+                    data=webp_bytes,
+                    timeout=_request_timeout_seconds(),
+                )
+                upload_response.raise_for_status()
+                upload_json = upload_response.json()
+            except requests.RequestException as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Upload failed for page {page_number}: {error}",
+                ) from error
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Upload returned invalid JSON for page {page_number}",
+                ) from error
+
+            storage_id = upload_json.get("storageId")
+            if not storage_id:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Upload succeeded for page {page_number} but returned no storageId",
+                )
+
+            results.append(
+                PdfProcessResult(
+                    storage_id=storage_id,
+                    width=image.width,
+                    height=image.height,
+                    page=page_number,
+                ),
+            )
+
+        return PdfProcessResponse(results=results)
+    finally:
+        document.close()
 
 
 class WordBox(BaseModel):

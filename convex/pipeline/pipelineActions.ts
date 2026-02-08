@@ -6,6 +6,17 @@ import { assertBbox, overlaps } from "../model";
 type WordBox = { text: string; bbox: number[] };
 type Segment = { bbox: number[] };
 
+function getPositiveIntEnv(name: string, fallback: number) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 function getPipelineServiceConfig() {
   const baseUrl = process.env.PIPELINE_SERVICE_URL;
   if (!baseUrl) {
@@ -15,6 +26,27 @@ function getPipelineServiceConfig() {
     baseUrl: baseUrl.replace(/\/$/, ""),
     apiKey: process.env.PIPELINE_SERVICE_API_KEY,
   };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+) {
+  const limit = Math.max(1, concurrency);
+  const results: R[] = new Array(items.length);
+  let index = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const current = index;
+      index += 1;
+      results[current] = await mapper(items[current]!, current);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 async function postPipeline<T>(
@@ -38,6 +70,25 @@ async function postPipeline<T>(
   return response.json() as Promise<T>;
 }
 
+async function postPipelineWithRetry<T>(
+  path: string,
+  payload: Record<string, unknown>,
+) {
+  const attempts = getPositiveIntEnv("PIPELINE_HTTP_MAX_ATTEMPTS", 2);
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await postPipeline<T>(path, payload);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await sleep(attempt * 300);
+      }
+    }
+  }
+  throw lastError;
+}
+
 function wordsInSegment(
   words: WordBox[],
   bbox: [number, number, number, number],
@@ -50,6 +101,9 @@ function wordsInSegment(
 }
 
 async function runPipeline(ctx: any, publicationId: any) {
+  const pageConcurrency = getPositiveIntEnv("PIPELINE_PAGE_CONCURRENCY", 2);
+  const segmentConcurrency = getPositiveIntEnv("PIPELINE_SEGMENT_CONCURRENCY", 4);
+
   await ctx.runMutation(
     internal.publications.publicationMutations.clearAiLeads,
     {
@@ -65,145 +119,188 @@ async function runPipeline(ctx: any, publicationId: any) {
     internal.publications.publicationQueries.getPublicationPagesInternal,
     { publicationId },
   );
-  let createdLeadCount = 0;
-
-  for (const page of pages) {
-    const imageUrl = await ctx.storage.getUrl(page.pageImageStorageId);
-    if (!imageUrl) {
-      throw new ConvexError(
-        `Could not resolve page image URL for page ${page.pageNumber}`,
-      );
-    }
-
-    const ocrResult = await postPipeline<{
-      engine?: string;
-      version?: string;
-      word_boxes?: Array<{ text: string; bbox: number[] }>;
-    }>("/ocr/page", {
-      publication_id: publicationId,
-      page_number: page.pageNumber,
-      image_url: imageUrl,
-      page_width: page.pageWidth,
-      page_height: page.pageHeight,
-    });
-
-    const wordBoxes = (ocrResult.word_boxes ?? []).filter(
-      (word) =>
-        Array.isArray(word.bbox) &&
-        word.bbox.length === 4 &&
-        typeof word.text === "string",
-    );
-
-    await ctx.runMutation(
-      internal.publications.publicationMutations.upsertPageOcr,
-      {
-        publicationId,
-        pageNumber: page.pageNumber,
-        engine:
-          ocrResult.engine === "TEXTRACT" || ocrResult.engine === "OTHER"
-            ? ocrResult.engine
-            : "TESSERACT",
-        version: ocrResult.version,
-        wordBoxes,
-        plainText: wordBoxes.map((word) => word.text).join(" "),
-      },
-    );
-
-    const segmentResult = await postPipeline<{ segments?: Segment[] }>(
-      "/segment/page",
-      {
-        publication_id: publicationId,
-        page_number: page.pageNumber,
-        image_url: imageUrl,
-        page_width: page.pageWidth,
-        page_height: page.pageHeight,
-        word_boxes: wordBoxes,
-      },
-    );
-
-    const segments = (segmentResult.segments ?? []).filter(
-      (segment) => Array.isArray(segment.bbox) && segment.bbox.length === 4,
-    );
-
-    for (const segment of segments) {
-      const bbox = assertBbox(segment.bbox);
-      const segmentText = wordsInSegment(wordBoxes, bbox);
-      const classifyResult = await postPipeline<{
-        is_lead: boolean;
-        confidence?: number;
-        prediction?: "positive" | "negative";
-      }>("/classify/lead", {
-        publication_id: publicationId,
-        page_number: page.pageNumber,
-        segment_bbox: bbox,
-        text: segmentText,
-      });
-
-      if (!classifyResult.is_lead) continue;
-
-      const leadId = await ctx.runMutation(
-        internal.publications.publicationMutations.createAiLead,
-        {
-          publicationId,
-          pageNumber: page.pageNumber,
-          bbox,
-          confidenceScore: Math.max(
-            0,
-            Math.min(100, Math.round((classifyResult.confidence ?? 0.5) * 100)),
-          ),
-          prediction: classifyResult.prediction ?? "positive",
-        },
-      );
-      createdLeadCount += 1;
-
-      await ctx.runMutation(
-        internal.publications.publicationMutations.upsertLeadEnrichment,
-        {
-          leadId,
-          status: "PROCESSING",
-        },
-      );
-
+  const pageResults = await mapWithConcurrency(
+    pages,
+    pageConcurrency,
+    async (page) => {
       try {
-        const enrichment = await postPipeline<{
-          article_header?: string;
-          person_names?: string[];
-          company_names?: string[];
-        }>("/enrich/lead", {
+        const imageUrl = await ctx.storage.getUrl(page.pageImageStorageId);
+        if (!imageUrl) {
+          throw new ConvexError(
+            `Could not resolve page image URL for page ${page.pageNumber}`,
+          );
+        }
+
+        const ocrResult = await postPipelineWithRetry<{
+          engine?: string;
+          version?: string;
+          word_boxes?: Array<{ text: string; bbox: number[] }>;
+        }>("/ocr/page", {
           publication_id: publicationId,
           page_number: page.pageNumber,
-          segment_bbox: bbox,
-          text: segmentText,
+          image_url: imageUrl,
+          page_width: page.pageWidth,
+          page_height: page.pageHeight,
         });
 
+        const wordBoxes = (ocrResult.word_boxes ?? []).filter(
+          (word) =>
+            Array.isArray(word.bbox) &&
+            word.bbox.length === 4 &&
+            typeof word.text === "string",
+        );
+
         await ctx.runMutation(
-          internal.publications.publicationMutations.upsertLeadEnrichment,
+          internal.publications.publicationMutations.upsertPageOcr,
           {
-            leadId,
-            status: "DONE",
-            articleHeader: enrichment.article_header,
-            personNames: enrichment.person_names ?? [],
-            companyNames: enrichment.company_names ?? [],
+            publicationId,
+            pageNumber: page.pageNumber,
+            engine:
+              ocrResult.engine === "TEXTRACT" || ocrResult.engine === "OTHER"
+                ? ocrResult.engine
+                : "TESSERACT",
+            version: ocrResult.version,
+            wordBoxes,
+            plainText: wordBoxes.map((word) => word.text).join(" "),
           },
         );
+
+        const segmentResult = await postPipelineWithRetry<{
+          segments?: Segment[];
+        }>("/segment/page", {
+          publication_id: publicationId,
+          page_number: page.pageNumber,
+          image_url: imageUrl,
+          page_width: page.pageWidth,
+          page_height: page.pageHeight,
+          word_boxes: wordBoxes,
+        });
+
+        const segments = (segmentResult.segments ?? []).filter(
+          (segment) => Array.isArray(segment.bbox) && segment.bbox.length === 4,
+        );
+
+        const segmentLeadCounts = await mapWithConcurrency(
+          segments,
+          segmentConcurrency,
+          async (segment) => {
+            const bbox = assertBbox(segment.bbox);
+            const segmentText = wordsInSegment(wordBoxes, bbox);
+            const classifyResult = await postPipelineWithRetry<{
+              is_lead: boolean;
+              confidence?: number;
+              prediction?: "positive" | "negative";
+            }>("/classify/lead", {
+              publication_id: publicationId,
+              page_number: page.pageNumber,
+              segment_bbox: bbox,
+              text: segmentText,
+            });
+
+            if (!classifyResult.is_lead) return 0;
+
+            const leadId = await ctx.runMutation(
+              internal.publications.publicationMutations.createAiLead,
+              {
+                publicationId,
+                pageNumber: page.pageNumber,
+                bbox,
+                confidenceScore: Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    Math.round((classifyResult.confidence ?? 0.5) * 100),
+                  ),
+                ),
+                prediction: classifyResult.prediction ?? "positive",
+              },
+            );
+
+            await ctx.runMutation(
+              internal.publications.publicationMutations.upsertLeadEnrichment,
+              {
+                leadId,
+                status: "PROCESSING",
+              },
+            );
+
+            try {
+              const enrichment = await postPipelineWithRetry<{
+                article_header?: string;
+                person_names?: string[];
+                company_names?: string[];
+              }>("/enrich/lead", {
+                publication_id: publicationId,
+                page_number: page.pageNumber,
+                segment_bbox: bbox,
+                text: segmentText,
+              });
+
+              await ctx.runMutation(
+                internal.publications.publicationMutations.upsertLeadEnrichment,
+                {
+                  leadId,
+                  status: "DONE",
+                  articleHeader: enrichment.article_header,
+                  personNames: enrichment.person_names ?? [],
+                  companyNames: enrichment.company_names ?? [],
+                },
+              );
+            } catch (error) {
+              await ctx.runMutation(
+                internal.publications.publicationMutations.upsertLeadEnrichment,
+                {
+                  leadId,
+                  status: "ERROR",
+                  errorMessage:
+                    error instanceof Error
+                      ? error.message
+                      : "Lead enrichment failed",
+                },
+              );
+            }
+
+            return 1;
+          },
+        );
+
+        return {
+          ok: true as const,
+          createdLeadCount: segmentLeadCounts.reduce((sum, n) => sum + n, 0),
+          pageNumber: page.pageNumber,
+        };
       } catch (error) {
-        await ctx.runMutation(
-          internal.publications.publicationMutations.upsertLeadEnrichment,
-          {
-            leadId,
-            status: "ERROR",
-            errorMessage:
-              error instanceof Error ? error.message : "Lead enrichment failed",
-          },
-        );
+        console.error("[pipeline] page processing failed", {
+          publicationId,
+          pageNumber: page.pageNumber,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          ok: false as const,
+          createdLeadCount: 0,
+          pageNumber: page.pageNumber,
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
-    }
-  }
+    },
+  );
+
+  const createdLeadCount = pageResults.reduce(
+    (sum, pageResult) => sum + pageResult.createdLeadCount,
+    0,
+  );
 
   await ctx.runMutation(
     internal.publications.publicationMutations.finalizeLeadProcessing,
     { publicationId },
   );
+
+  const failedPages = pageResults.filter((page) => !page.ok);
+  if (failedPages.length > 0) {
+    throw new ConvexError(
+      `Failed processing ${failedPages.length}/${pageResults.length} pages`,
+    );
+  }
 
   return { createdLeadCount };
 }
