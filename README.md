@@ -12,10 +12,13 @@ Nuxt frontend/editor and Convex backend replacing the legacy Java + Vue labeling
 ## Local Setup
 
 1. Install deps:
+
 ```bash
 bun install
 ```
+
 2. Configure `.env.local`:
+
 ```bash
 CONVEX_URL=...
 CONVEX_DEPLOY_KEY=...
@@ -32,11 +35,15 @@ TGN_CLASSIFIER_ENDPOINT=
 TGN_ENRICHMENT_ENDPOINT=
 TGN_CRAWLER_WEBHOOK_TOKEN=
 ```
+
 3. Generate Convex API types:
+
 ```bash
 bunx convex codegen
 ```
+
 4. Run app:
+
 ```bash
 bun run dev
 ```
@@ -46,12 +53,15 @@ bun run dev
 1. Upload a publication at `/upload`.
 2. File is stored in Convex Files (`_storage`) and a `publications` record is created.
 3. Pipeline (`enqueuePublicationProcessing` / `processPublication`) executes stages:
+
 - `runPdfToImage`
 - `runPageOcr` (for each page)
 - `runLeadDetection` (segmentor + classifier)
 - `runLeadEnrichment` (article header + person/company names)
+
 4. Canonical state remains in Convex tables (`publications`, `publicationPages`, `pageOcr`, `leads`, `leadEnrichments`, `jobs`, `jobEvents`).
 5. Editor page `/publications/:id` supports:
+
 - zoomable page view
 - AI/manual lead overlays
 - drawing manual missed leads
@@ -117,6 +127,7 @@ Convex env for pipeline calls:
 Use one Railway project with two services from this same repo:
 
 1. `web` service (Nuxt app)
+
 - Dockerfile target: `runner`
 - Public URL enabled
 - Required env:
@@ -126,6 +137,7 @@ Use one Railway project with two services from this same repo:
   - `PDF_SERVICE_API_KEY=<shared-secret>`
 
 2. `convex-deploy` service (Convex deployment worker)
+
 - Dockerfile target: `convex-deploy`
 - No public URL needed
 - Required env:
@@ -133,6 +145,7 @@ Use one Railway project with two services from this same repo:
 - Command: default image command is already `bunx convex deploy --typecheck disable`
 
 Also set in Convex deployment env:
+
 - `PDF_SERVICE_URL=https://<your-web-domain>`
 - `PDF_SERVICE_API_KEY=<shared-secret>`
 
@@ -153,3 +166,5 @@ Also set in Convex deployment env:
 ## Important Constraint
 
 External lambdas may still use S3 internally, but app canonical state must remain Convex DB + Convex Files.
+
+1
