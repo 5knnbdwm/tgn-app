@@ -8,6 +8,7 @@ COPY . .
 ENV NUXT_TELEMETRY_DISABLED=1
 RUN bun run build
 
+ARG CONVEX_DEPLOY_KEY
 RUN bunx convex deploy --typecheck disable
 
 FROM oven/bun:1 AS runner
