@@ -17,6 +17,9 @@ export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig(event);
   const baseUrl = trimTrailingSlash((config.pipelineServiceUrl ?? "").trim());
   if (!baseUrl) {
+    console.error(
+      "[pipeline/proxy] missing PIPELINE_SERVICE_URL runtime config.",
+    );
     throw createError({
       statusCode: 500,
       statusMessage: "Missing PIPELINE_SERVICE_URL runtime config.",
@@ -27,6 +30,9 @@ export default defineEventHandler(async (event) => {
   if (proxyApiKey) {
     const incomingApiKey = getHeader(event, "x-api-key");
     if (incomingApiKey !== proxyApiKey) {
+      console.error(
+        "[pipeline/proxy] unauthorized. invalid or missing API key.",
+      );
       throw createError({
         statusCode: 401,
         statusMessage: "Unauthorized. Invalid or missing API key.",
@@ -40,6 +46,7 @@ export default defineEventHandler(async (event) => {
     ? pathParam.filter(Boolean).join("/")
     : (pathParam ?? "");
   if (!path) {
+    console.error("[pipeline/proxy] missing pipeline path.");
     throw createError({
       statusCode: 400,
       statusMessage: "Missing pipeline path.",
@@ -66,7 +73,9 @@ export default defineEventHandler(async (event) => {
   const contentType = getHeader(event, "content-type");
   const accept = getHeader(event, "accept");
   const body =
-    method === "GET" || method === "HEAD" ? undefined : await readRawBody(event);
+    method === "GET" || method === "HEAD"
+      ? undefined
+      : await readRawBody(event);
 
   let response: Response;
   try {
