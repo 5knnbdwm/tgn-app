@@ -8,8 +8,16 @@ COPY . .
 ENV NUXT_TELEMETRY_DISABLED=1
 RUN bun run build
 
-ARG CONVEX_DEPLOY_KEY
-RUN bunx convex deploy --typecheck disable
+FROM oven/bun:1 AS convex-deploy
+WORKDIR /app
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY convex ./convex
+
+# Railway "convex-deploy" service can run this target and execute:
+# bunx convex deploy --typecheck disable
+CMD ["bunx", "convex", "deploy", "--typecheck", "disable"]
 
 FROM oven/bun:1 AS runner
 WORKDIR /app

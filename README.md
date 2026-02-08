@@ -89,6 +89,30 @@ Nuxt now provides internal PDF conversion routes:
 `convex/publications/publicationActions.ts` calls these routes via `PDF_SERVICE_URL` (fallback: `SITE_URL`).
 If `PDF_SERVICE_API_KEY` is set, requests must include `X-API-Key`.
 
+## Railway: Single Project, Two Services
+
+Use one Railway project with two services from this same repo:
+
+1. `web` service (Nuxt app)
+- Dockerfile target: `runner`
+- Public URL enabled
+- Required env:
+  - `SITE_URL=https://<your-web-domain>`
+  - `CONVEX_URL=https://<deployment>.convex.cloud`
+  - `CONVEX_SITE_URL=https://<deployment>.convex.site`
+  - `PDF_SERVICE_API_KEY=<shared-secret>`
+
+2. `convex-deploy` service (Convex deployment worker)
+- Dockerfile target: `convex-deploy`
+- No public URL needed
+- Required env:
+  - `CONVEX_DEPLOY_KEY=<your-convex-deploy-key>`
+- Command: default image command is already `bunx convex deploy --typecheck disable`
+
+Also set in Convex deployment env:
+- `PDF_SERVICE_URL=https://<your-web-domain>`
+- `PDF_SERVICE_API_KEY=<shared-secret>`
+
 ## Migration Notes (Old -> New)
 
 - S3 state is removed from system-of-record. All canonical app state is in Convex DB.
