@@ -6,7 +6,7 @@ export default defineEventHandler(async (event) => {
   const path = event.context.params?.path || "";
   const method = event.method;
   const config = useRuntimeConfig(event);
-  const proxyApiKey = config.pipelineProxyApiKey;
+  const proxyApiKey = config.pipelineServiceApiKey;
   const baseUrl = trimTrailingSlash(config.pipelineServiceUrl);
 
   if (baseUrl.length === 0) {
