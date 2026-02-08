@@ -18,6 +18,10 @@ ENV NUXT_TELEMETRY_DISABLED=1
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
+# Copy node_modules from builder (already installed, no need to reinstall)
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy the built output
 COPY --from=builder /app/.output ./.output
 
 EXPOSE 3000
