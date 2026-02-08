@@ -15,7 +15,7 @@ function trimTrailingSlash(value: string) {
 export default defineEventHandler(async (event) => {
   const startedAt = Date.now();
   const config = useRuntimeConfig(event);
-  const baseUrl = trimTrailingSlash((config.pipelinzeServiceUrl ?? "").trim());
+  const baseUrl = trimTrailingSlash(config.pipelineServiceUrl);
   if (!baseUrl) {
     console.error(
       "[pipeline/proxy] missing PIPELINE_SERVICE_URL runtime config.",
@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const proxyApiKey = (config.pipelineProxyApiKey ?? "").trim();
+  const proxyApiKey = config.pipelineProxyApiKey;
   if (proxyApiKey) {
     const incomingApiKey = getHeader(event, "x-api-key");
     if (incomingApiKey !== proxyApiKey) {
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
     upstreamUrl,
   });
 
-  const upstreamApiKey = (config.pipelineServiceApiKey ?? "").trim();
+  const upstreamApiKey = config.pipelineServiceApiKey;
   const contentType = getHeader(event, "content-type");
   const accept = getHeader(event, "accept");
   const body =
