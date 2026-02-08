@@ -6,9 +6,10 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
 
   runtimeConfig: {
-    pipelineServiceUrl: process.env.PIPELINE_SERVICE_URL ?? "",
-    pipelineServiceApiKey: process.env.PIPELINE_SERVICE_API_KEY ?? "",
-    pipelineProxyApiKey: process.env.PIPELINE_PROXY_API_KEY ?? "",
+    pipelineServiceUrl: process.env.NUXT_PIPELINE_SERVICE_URL ?? "",
+    pipelineServiceApiKey: process.env.NUXT_PIPELINE_SERVICE_API_KEY ?? "",
+    pipelineProxyApiKey: process.env.NUXT_PIPELINE_PROXY_API_KEY ?? "",
+    pdfServiceApiKey: process.env.NUXT_PDF_SERVICE_API_KEY ?? "",
   },
 
   modules: [

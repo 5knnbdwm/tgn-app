@@ -15,7 +15,7 @@ function trimTrailingSlash(value: string) {
 export default defineEventHandler(async (event) => {
   const startedAt = Date.now();
   const config = useRuntimeConfig(event);
-  const baseUrl = trimTrailingSlash((config.pipelineServiceUrl ?? "").trim());
+  const baseUrl = trimTrailingSlash((config.pipelinzeServiceUrl ?? "").trim());
   if (!baseUrl) {
     console.error(
       "[pipeline/proxy] missing PIPELINE_SERVICE_URL runtime config.",

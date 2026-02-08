@@ -6,13 +6,9 @@ export type ProcessRequest = {
   uploadUrls: string[];
 };
 
-function getConfiguredApiKey() {
-  return process.env.PDF_SERVICE_API_KEY?.trim();
-}
-
 export function assertApiKey(event: H3Event) {
-  const configuredApiKey = getConfiguredApiKey();
-  if (!configuredApiKey) return;
+  const { pdfServiceApiKey: configuredApiKey } = useRuntimeConfig(event);
+  if (!configuredApiKey?.trim()) return;
 
   const apiKeyHeader = getHeader(event, "x-api-key");
   if (apiKeyHeader === configuredApiKey) return;
