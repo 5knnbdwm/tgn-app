@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAuthClient } from "#imports";
+import { Moon, Sun } from "lucide-vue-next";
 import { api } from "~~/convex/_generated/api";
 
 const authClient = useAuthClient();
@@ -10,8 +11,22 @@ const permissionContextQuery = useConvexQuery(
 );
 const permissionContext = computed(() => permissionContextQuery.data.value);
 const colorMode = useColorMode();
+const route = useRoute();
 
 const isDarkMode = computed(() => colorMode.value === "dark");
+const navItems = computed(() => {
+  const items = [{ label: "Publications", to: "/" }];
+
+  if (permissionContext.value?.role === "admin") {
+    items.push({ label: "Users", to: "/admin/users" });
+  }
+
+  return items;
+});
+
+function isActivePath(path: string) {
+  return route.path === path || route.path.startsWith(`${path}/`);
+}
 
 function toggleColorMode() {
   colorMode.preference = isDarkMode.value ? "light" : "dark";
@@ -33,12 +48,31 @@ async function signOut() {
       <div
         class="mx-auto flex h-14 w-full max-w-[1400px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8"
       >
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-4">
           <div
             class="size-2 rounded-full bg-emerald-500"
             :class="isAuthenticated ? 'opacity-100' : 'opacity-40'"
           />
           <p class="text-sm font-semibold tracking-wide">TGN Research</p>
+
+          <nav
+            v-if="isAuthenticated"
+            class="hidden items-center gap-1 rounded-lg border border-border/70 bg-muted/30 p-1 md:flex"
+          >
+            <NuxtLink
+              v-for="item in navItems"
+              :key="item.to"
+              :to="item.to"
+              class="inline-flex h-8 items-center rounded-md px-3 text-sm transition-colors"
+              :class="
+                isActivePath(item.to)
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+              "
+            >
+              {{ item.label }}
+            </NuxtLink>
+          </nav>
         </div>
 
         <div class="flex items-center gap-2">
@@ -47,31 +81,26 @@ async function signOut() {
           </p>
           <p
             v-else-if="isAuthenticated"
-            class="text-muted-foreground hidden text-sm md:block"
+            class="text-muted-foreground hidden rounded-md bg-muted/40 px-2.5 py-1 text-sm md:block"
           >
             Logged in
             {{ permissionContext?.role ? ` as ${permissionContext.role}` : "" }}
           </p>
 
-          <NuxtLink
-            v-if="permissionContext?.role === 'admin'"
-            to="/admin/users"
-            class="border-input hover:bg-muted inline-flex h-9 items-center rounded-md border px-3 text-sm"
-          >
-            Users
-          </NuxtLink>
-
           <button
             type="button"
-            class="border-input hover:bg-muted inline-flex h-9 items-center rounded-md border px-3 text-sm"
+            class="border-input hover:bg-muted inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors"
+            :aria-label="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+            :title="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
             @click="toggleColorMode"
           >
-            {{ isDarkMode ? "Light" : "Dark" }}
+            <Sun v-if="isDarkMode" class="size-4" />
+            <Moon v-else class="size-4" />
           </button>
 
           <button
             type="button"
-            class="inline-flex h-9 items-center rounded-md bg-[#8f361f] px-3 text-sm font-medium text-white hover:bg-[#7d301b] disabled:cursor-not-allowed disabled:opacity-60"
+            class="text-muted-foreground hover:text-foreground inline-flex h-9 items-center rounded-md px-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="!isAuthenticated"
             @click="signOut"
           >
