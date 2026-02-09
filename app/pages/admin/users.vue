@@ -179,7 +179,7 @@ function handleRoleSelect(userId: Id<"users">, authId: string, event: Event) {
           </div>
 
           <div class="grid gap-2">
-            <Label for="password">Temporary Password</Label>
+            <Label for="password">Password</Label>
             <Input
               id="password"
               v-model="form.password"
