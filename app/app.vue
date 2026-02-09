@@ -3,6 +3,6 @@
     <NuxtPage />
   </NuxtLayout>
   <ClientOnly>
-    <Toaster />
+    <Toaster position="top-center" />
   </ClientOnly>
 </template>
