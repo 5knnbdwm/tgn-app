@@ -379,7 +379,7 @@ async function onInputChange(event: Event) {
                 >
                 <TableCell>
                   <NuxtLink
-                    :to="`/editor/${publication._id}?page=1`"
+                    :to="`/editor/${publication._id}/1`"
                     class="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted"
                   >
                     Open Editor

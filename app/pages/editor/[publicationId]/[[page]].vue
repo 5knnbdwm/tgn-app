@@ -6,6 +6,8 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  Loader2,
+  Plus,
   RefreshCw,
 } from "lucide-vue-next";
 
@@ -18,7 +20,10 @@ const publicationId = computed(
   () => route.params.publicationId as Id<"publications">,
 );
 const currentPage = computed(() => {
-  const raw = Number(route.query.page ?? 1);
+  const rawPageParam = Array.isArray(route.params.page)
+    ? route.params.page[0]
+    : route.params.page;
+  const raw = Number(rawPageParam ?? 1);
   if (!Number.isFinite(raw) || raw < 1) return 1;
   return Math.floor(raw);
 });
@@ -39,10 +44,15 @@ const pageData = useConvexQuery(
 const { mutate: retryPublicationProcessing } = useConvexMutation(
   api.publications.publicationMutations.retryPublicationProcessing,
 );
+const { mutate: createMissedLead } = useConvexMutation(
+  api.publications.publicationMutations.createMissedLead,
+);
 
 const selectedLeadId = ref<string | null>(null);
 const expandedPageNumber = ref<number | null>(null);
 const retryingProcessing = ref(false);
+const drawModePageNumber = ref<number | null>(null);
+const creatingMissedLead = ref(false);
 const leadSidebarScrollContainer = ref<HTMLElement | null>(null);
 const leadPageSectionRefs = ref<Record<number, HTMLElement | null>>({});
 const sidebar = computed(() => sidebarData.data.value);
@@ -51,8 +61,37 @@ const publicationStatus = computed(() => sidebar.value?.publication.status);
 const maxPage = computed(() => sidebar.value?.publication.pageCount ?? 1);
 const pageLeads = computed(() => currentPageData.value?.leads ?? []);
 const pagesWithLeads = computed(() => sidebar.value?.pagesWithLeads ?? []);
+const sidebarPages = computed(() => {
+  const pageEntries = pagesWithLeads.value;
+  const byPageNumber = new Map<number, (typeof pageEntries)[number]>();
+  for (const entry of pageEntries) {
+    byPageNumber.set(entry.pageNumber, entry);
+  }
+  const pages = pageEntries.map((entry) => ({
+    pageNumber: entry.pageNumber,
+    leads: entry.leads,
+    isGhost: false,
+  }));
+
+  if (
+    currentPage.value >= 1 &&
+    currentPage.value <= maxPage.value &&
+    !byPageNumber.has(currentPage.value)
+  ) {
+    pages.push({
+      pageNumber: currentPage.value,
+      leads: [],
+      isGhost: true,
+    });
+  }
+
+  return pages.sort((a, b) => a.pageNumber - b.pageNumber);
+});
 const pageNumbersWithLeads = computed(() =>
   pagesWithLeads.value.map((entry) => entry.pageNumber).sort((a, b) => a - b),
+);
+const isDrawModeActive = computed(
+  () => drawModePageNumber.value === currentPage.value,
 );
 const previousPage = computed(() =>
   currentPage.value > 1 ? currentPage.value - 1 : null,
@@ -94,17 +133,13 @@ watch(
   { immediate: true },
 );
 
-function buildQuery(pageNumber: number) {
-  return {
-    ...route.query,
-    page: String(pageNumber),
-  };
-}
-
 async function setPage(pageNumber: number) {
   if (pageNumber < 1 || pageNumber > maxPage.value) return;
   if (pageNumber === currentPage.value) return;
-  await router.replace({ query: buildQuery(pageNumber) });
+  await router.replace({
+    path: `/editor/${publicationId.value}/${pageNumber}`,
+    query: route.query,
+  });
 }
 
 function formatLeadCategory(value: string) {
@@ -147,8 +182,36 @@ async function retryProcessing() {
   }
 }
 
+function toggleDrawForPage(pageNumber: number) {
+  if (drawModePageNumber.value === pageNumber) {
+    drawModePageNumber.value = null;
+    return;
+  }
+  drawModePageNumber.value = pageNumber;
+  if (pageNumber !== currentPage.value) {
+    void setPage(pageNumber);
+  }
+}
+
+async function handleCreateMissedLead(payload: {
+  bbox: [number, number, number, number];
+}) {
+  if (creatingMissedLead.value) return;
+  creatingMissedLead.value = true;
+  try {
+    await createMissedLead({
+      publicationId: publicationId.value,
+      pageNumber: currentPage.value,
+      bbox: payload.bbox,
+    });
+    drawModePageNumber.value = null;
+  } finally {
+    creatingMissedLead.value = false;
+  }
+}
+
 function confidenceLabel(score: number) {
-  return `${Math.round(score)}% confidence`;
+  return `${Math.round(score)}% conf.`;
 }
 
 function formatNames(names?: string[]) {
@@ -192,7 +255,6 @@ watch(
   },
   { flush: "post" },
 );
-
 </script>
 
 <template>
@@ -343,6 +405,8 @@ watch(
           :current-page="currentPage"
           :page-leads="pageLeads"
           :selected-lead-id="selectedLeadId"
+          :draw-mode-enabled="isDrawModeActive"
+          @create-missed-lead="handleCreateMissedLead"
         />
 
         <aside
@@ -360,18 +424,27 @@ watch(
             </div>
 
             <section
-              v-for="pageEntry in pagesWithLeads"
+              v-for="pageEntry in sidebarPages"
               :key="pageEntry.pageNumber"
               :ref="
                 (element) =>
-                  setLeadPageSectionRef(pageEntry.pageNumber, element)
+                  setLeadPageSectionRef(
+                    pageEntry.pageNumber,
+                    element as HTMLElement | null,
+                  )
               "
-              class="rounded-xl border border-border/70 bg-background/80 p-3 space-y-2"
+              class="rounded-xl border border-border/70 p-3 space-y-2"
+              :class="
+                pageEntry.isGhost
+                  ? 'bg-muted/35 opacity-75'
+                  : 'bg-background/80'
+              "
             >
               <div class="flex items-center gap-2">
                 <Button
                   size="icon-xs"
                   variant="outline"
+                  :disabled="pageEntry.isGhost"
                   @click="togglePageExpansion(pageEntry.pageNumber)"
                 >
                   <ChevronDown
@@ -391,12 +464,52 @@ watch(
                 <div class="text-muted-foreground text-xs">
                   {{ pageEntry.leads.length }} leads
                 </div>
+                <Button
+                  size="icon-xs"
+                  :variant="
+                    drawModePageNumber === pageEntry.pageNumber
+                      ? 'default'
+                      : 'outline'
+                  "
+                  class="ml-auto"
+                  :disabled="creatingMissedLead"
+                  :title="
+                    drawModePageNumber === pageEntry.pageNumber
+                      ? `Cancel missed lead mode for page ${pageEntry.pageNumber}`
+                      : `Add missed lead on page ${pageEntry.pageNumber}`
+                  "
+                  @click="toggleDrawForPage(pageEntry.pageNumber)"
+                >
+                  <Loader2
+                    v-if="
+                      creatingMissedLead &&
+                      drawModePageNumber === pageEntry.pageNumber
+                    "
+                    class="size-4 animate-spin"
+                  />
+                  <Plus
+                    v-else
+                    class="size-4"
+                    :class="
+                      drawModePageNumber === pageEntry.pageNumber
+                        ? 'opacity-100'
+                        : 'opacity-90'
+                    "
+                  />
+                </Button>
               </div>
 
               <div
                 v-if="expandedPageNumber === pageEntry.pageNumber"
                 class="space-y-2"
               >
+                <div
+                  v-if="pageEntry.isGhost"
+                  class="text-muted-foreground rounded-lg border border-dashed border-border px-3 py-4 text-xs"
+                >
+                  No leads on this page yet. Use the + button to draw and add a
+                  missed lead.
+                </div>
                 <article
                   v-for="lead in pageEntry.leads"
                   :key="lead._id"
@@ -413,26 +526,28 @@ watch(
                     </p>
                   </div>
 
-                  <p class="mt-1 text-sm">
-                    {{
-                      lead.enrichment?.articleHeader ||
-                      "No article header extracted."
-                    }}
-                  </p>
+                  <template v-if="lead.category === 'AI_LEAD'">
+                    <p class="mt-1 text-sm">
+                      {{
+                        lead.enrichment?.articleHeader ||
+                        "No article header extracted."
+                      }}
+                    </p>
 
-                  <p class="text-muted-foreground mt-1 text-xs">
-                    Enrichment: {{ lead.enrichment?.status || "PENDING" }}
-                  </p>
-                  <div class="mt-2 space-y-1 text-xs">
-                    <p>
-                      <span class="text-muted-foreground">Persons:</span>
-                      {{ formatNames(lead.enrichment?.personNames) }}
+                    <p class="text-muted-foreground mt-1 text-xs">
+                      Enrichment: {{ lead.enrichment?.status || "PENDING" }}
                     </p>
-                    <p>
-                      <span class="text-muted-foreground">Companies:</span>
-                      {{ formatNames(lead.enrichment?.companyNames) }}
-                    </p>
-                  </div>
+                    <div class="mt-2 space-y-1 text-xs">
+                      <p>
+                        <span class="text-muted-foreground">Persons:</span>
+                        {{ formatNames(lead.enrichment?.personNames) }}
+                      </p>
+                      <p>
+                        <span class="text-muted-foreground">Companies:</span>
+                        {{ formatNames(lead.enrichment?.companyNames) }}
+                      </p>
+                    </div>
+                  </template>
                 </article>
               </div>
             </section>
