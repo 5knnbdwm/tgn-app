@@ -3,22 +3,6 @@ import { internalQuery, query } from "../_generated/server";
 import { paginationOptsValidator } from "convex/server";
 import { publicationStatusValidator, sourceTypeValidator } from "../model";
 
-async function attachLeadEnrichments(
-  ctx: any,
-  leads: any[],
-) {
-  const leadWithEnrichment = await Promise.all(
-    leads.map(async (lead) => {
-      const enrichment = await ctx.db
-        .query("leadEnrichments")
-        .withIndex("by_leadId", (q: any) => q.eq("leadId", lead._id))
-        .first();
-      return { ...lead, enrichment };
-    }),
-  );
-  return leadWithEnrichment;
-}
-
 export const listPublications = query({
   args: {
     paginationOpts: paginationOptsValidator,
@@ -81,8 +65,7 @@ export const getPage = query({
     const activeLeads = leads
       .filter((lead) => !lead.isDeleted)
       .sort((a, b) => b.confidenceScore - a.confidenceScore);
-    const leadsWithEnrichment = await attachLeadEnrichments(ctx, activeLeads);
-    return { page, pageImageUrl, leads: leadsWithEnrichment };
+    return { page, pageImageUrl, leads: activeLeads };
   },
 });
 
@@ -106,10 +89,9 @@ export const getEditorSidebar = query({
           a.pageNumber - b.pageNumber || b.confidenceScore - a.confidenceScore,
       );
 
-    const leadsWithEnrichment = await attachLeadEnrichments(ctx, activeLeads);
-    const pages = new Map<number, typeof leadsWithEnrichment>();
+    const pages = new Map<number, typeof activeLeads>();
 
-    for (const lead of leadsWithEnrichment) {
+    for (const lead of activeLeads) {
       const pageLeads = pages.get(lead.pageNumber) ?? [];
       pageLeads.push(lead);
       pages.set(lead.pageNumber, pageLeads);
@@ -174,6 +156,35 @@ export const getLeadEnrichment = query({
       .query("leadEnrichments")
       .withIndex("by_leadId", (q) => q.eq("leadId", args.leadId))
       .first();
+  },
+});
+
+export const getLeadEnrichmentsForPage = query({
+  args: {
+    publicationId: v.id("publications"),
+    pageNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const leads = await ctx.db
+      .query("leads")
+      .withIndex("by_publicationId_pageNumber", (q) =>
+        q
+          .eq("publicationId", args.publicationId)
+          .eq("pageNumber", args.pageNumber),
+      )
+      .collect();
+
+    const activeLeads = leads.filter((lead) => !lead.isDeleted);
+    const enrichments = await Promise.all(
+      activeLeads.map((lead) =>
+        ctx.db
+          .query("leadEnrichments")
+          .withIndex("by_leadId", (q) => q.eq("leadId", lead._id))
+          .first(),
+      ),
+    );
+
+    return enrichments.filter(Boolean);
   },
 });
 

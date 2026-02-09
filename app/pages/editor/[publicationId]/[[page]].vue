@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-vue-next";
+import { toast } from "vue-sonner";
 
 definePageMeta({
   middleware: "auth",
@@ -51,7 +52,7 @@ const { mutate: createMissedLead } = useConvexMutation(
   api.publications.publicationMutations.createMissedLead,
 );
 
-const selectedLeadId = ref<string | null>(null);
+const selectedLeadId = ref<Id<"leads"> | null>(null);
 const expandedPageNumber = ref<number | null>(null);
 const retryingProcessing = ref(false);
 const drawModePageNumber = ref<number | null>(null);
@@ -82,6 +83,33 @@ const pageData = useConvexQuery(
     publicationId: publicationId.value,
     pageNumber: currentPage.value,
   })),
+);
+const pageLeadEnrichmentsData = useConvexQuery(
+  api.publications.publicationQueries.getLeadEnrichmentsForPage,
+  computed(() =>
+    expandedPageNumber.value
+      ? {
+          publicationId: publicationId.value,
+          pageNumber: expandedPageNumber.value,
+        }
+      : "skip",
+  ),
+);
+const leadEnrichmentsByLeadId = computed(() => {
+  type LeadEnrichment = NonNullable<
+    NonNullable<typeof pageLeadEnrichmentsData.data.value>[number]
+  >;
+  const map: Record<string, LeadEnrichment> = {};
+  for (const enrichment of pageLeadEnrichmentsData.data.value ?? []) {
+    if (!enrichment) continue;
+    map[enrichment.leadId] = enrichment;
+  }
+  return map;
+});
+const selectedLeadEnrichment = computed(() =>
+  selectedLeadId.value
+    ? (leadEnrichmentsByLeadId.value[selectedLeadId.value] ?? null)
+    : null,
 );
 const sidebarPages = computed(() => {
   const pageEntries = pagesWithLeads.value;
@@ -254,6 +282,9 @@ async function copyLeadText(value?: string) {
   if (!import.meta.client) return;
   try {
     await navigator.clipboard.writeText(text);
+    toast.info("Copied to clipboard", {
+      duration: 1000,
+    });
   } catch {
     // Ignore clipboard errors (e.g. insecure context); click stays non-breaking.
   }
@@ -301,7 +332,7 @@ watch(
   <main
     class="h-[calc(100dvh-3.5rem-1px)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
   >
-    <div class="mx-auto flex h-full container flex-col gap-4 overflow-hidden">
+    <div class="mx-auto flex h-full container flex-col gap-4">
       <header
         class="rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm"
       >
@@ -436,13 +467,14 @@ watch(
       </header>
 
       <section
-        class="min-h-0 flex-1 grid gap-4 overflow-hidden xl:grid-cols-[minmax(0,1fr)_430px]"
+        class="min-h-0 flex-1 grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]"
       >
         <PDFViewer
           :current-page-data="currentPageData"
           :current-page="currentPage"
           :page-leads="pageLeads"
           :selected-lead-id="selectedLeadId"
+          :selected-lead-enrichment="selectedLeadEnrichment"
           :draw-mode-enabled="isDrawModeActive"
           @create-missed-lead="handleCreateMissedLead"
         />
@@ -510,7 +542,9 @@ watch(
                       : 'outline'
                   "
                   class="ml-auto"
-                  :disabled="creatingMissedLead"
+                  :disabled="
+                    creatingMissedLead || pageEntry.pageNumber !== currentPage
+                  "
                   :title="
                     drawModePageNumber === pageEntry.pageNumber
                       ? `Cancel missed lead mode for page ${pageEntry.pageNumber}`
@@ -551,9 +585,17 @@ watch(
                 <article
                   v-for="lead in pageEntry.leads"
                   :key="lead._id"
-                  class="rounded-lg border border-border/70 bg-card p-2"
+                  class="rounded-lg border bg-card p-2"
+                  :class="
+                    selectedLeadId === lead._id
+                      ? 'border-emerald-300 ring-1 ring-emerald-200'
+                      : 'border-border/70'
+                  "
                   @mouseenter="selectedLeadId = lead._id"
-                  @mouseleave="selectedLeadId = null"
+                  @mouseleave="
+                    selectedLeadId =
+                      selectedLeadId === lead._id ? null : selectedLeadId
+                  "
                 >
                   <div class="flex items-center justify-between gap-2">
                     <p class="text-sm font-semibold">
@@ -565,56 +607,82 @@ watch(
                   </div>
 
                   <template v-if="lead.category === 'AI_LEAD'">
-                    <button
-                      v-if="lead.enrichment?.articleHeader"
-                      type="button"
-                      class="mt-1 cursor-copy text-left text-sm hover:underline"
-                      title="Click to copy header"
-                      @click.stop="copyLeadText(lead.enrichment?.articleHeader)"
-                    >
-                      {{ lead.enrichment.articleHeader }}
-                    </button>
-                    <p v-else class="mt-1 text-sm">
-                      No article header extracted.
-                    </p>
+                    <template v-if="leadEnrichmentsByLeadId[lead._id]">
+                      <button
+                        v-if="leadEnrichmentsByLeadId[lead._id]?.articleHeader"
+                        type="button"
+                        class="mt-1 cursor-copy text-left text-sm hover:underline"
+                        title="Click to copy header"
+                        @click.stop="
+                          copyLeadText(
+                            leadEnrichmentsByLeadId[lead._id]?.articleHeader,
+                          )
+                        "
+                      >
+                        {{ leadEnrichmentsByLeadId[lead._id]?.articleHeader }}
+                      </button>
+                      <p v-else class="mt-1 text-sm">
+                        No article header extracted.
+                      </p>
 
-                    <p class="text-muted-foreground mt-1 text-xs">
-                      Enrichment: {{ lead.enrichment?.status || "PENDING" }}
+                      <p class="text-muted-foreground mt-1 text-xs">
+                        Enrichment:
+                        {{
+                          leadEnrichmentsByLeadId[lead._id]?.status || "PENDING"
+                        }}
+                      </p>
+                      <div class="mt-2 space-y-1 text-xs">
+                        <div class="flex flex-wrap items-center gap-1">
+                          <span class="text-muted-foreground">Persons:</span>
+                          <template
+                            v-if="
+                              leadEnrichmentsByLeadId[lead._id]?.personNames
+                                ?.length
+                            "
+                          >
+                            <button
+                              v-for="personName in leadEnrichmentsByLeadId[
+                                lead._id
+                              ]?.personNames"
+                              :key="`${lead._id}-person-${personName}`"
+                              type="button"
+                              class="cursor-copy rounded border border-border/70 px-1.5 py-0.5 text-left hover:bg-muted"
+                              title="Click to copy person name"
+                              @click.stop="copyLeadText(personName)"
+                            >
+                              {{ personName }}
+                            </button>
+                          </template>
+                          <span v-else class="text-muted-foreground"> - </span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1">
+                          <span class="text-muted-foreground">Companies:</span>
+                          <template
+                            v-if="
+                              leadEnrichmentsByLeadId[lead._id]?.companyNames
+                                ?.length
+                            "
+                          >
+                            <button
+                              v-for="companyName in leadEnrichmentsByLeadId[
+                                lead._id
+                              ]?.companyNames"
+                              :key="`${lead._id}-company-${companyName}`"
+                              type="button"
+                              class="cursor-copy rounded border border-border/70 px-1.5 py-0.5 text-left hover:bg-muted"
+                              title="Click to copy company name"
+                              @click.stop="copyLeadText(companyName)"
+                            >
+                              {{ companyName }}
+                            </button>
+                          </template>
+                          <span v-else class="text-muted-foreground"> - </span>
+                        </div>
+                      </div>
+                    </template>
+                    <p v-else class="text-muted-foreground mt-1 text-xs">
+                      Loading enrichment...
                     </p>
-                    <div class="mt-2 space-y-1 text-xs">
-                      <div class="flex flex-wrap items-center gap-1">
-                        <span class="text-muted-foreground">Persons:</span>
-                        <template v-if="lead.enrichment?.personNames?.length">
-                          <button
-                            v-for="personName in lead.enrichment.personNames"
-                            :key="`${lead._id}-person-${personName}`"
-                            type="button"
-                            class="cursor-copy rounded border border-border/70 px-1.5 py-0.5 text-left hover:bg-muted"
-                            title="Click to copy person name"
-                            @click.stop="copyLeadText(personName)"
-                          >
-                            {{ personName }}
-                          </button>
-                        </template>
-                        <span v-else class="text-muted-foreground"> - </span>
-                      </div>
-                      <div class="flex flex-wrap items-center gap-1">
-                        <span class="text-muted-foreground">Companies:</span>
-                        <template v-if="lead.enrichment?.companyNames?.length">
-                          <button
-                            v-for="companyName in lead.enrichment.companyNames"
-                            :key="`${lead._id}-company-${companyName}`"
-                            type="button"
-                            class="cursor-copy rounded border border-border/70 px-1.5 py-0.5 text-left hover:bg-muted"
-                            title="Click to copy company name"
-                            @click.stop="copyLeadText(companyName)"
-                          >
-                            {{ companyName }}
-                          </button>
-                        </template>
-                        <span v-else class="text-muted-foreground"> - </span>
-                      </div>
-                    </div>
                   </template>
                 </article>
               </div>

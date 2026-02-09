@@ -9,11 +9,8 @@ type NameBox = {
 type Lead = {
   _id: string;
   bbox: number[];
-  enrichment?: {
-    articleHeaderBbox?: number[];
-    personNameBoxes?: NameBox[];
-    companyNameBoxes?: NameBox[];
-  } | null;
+  category?: string;
+  confidenceScore?: number;
 };
 
 type CurrentPageData = {
@@ -24,11 +21,18 @@ type CurrentPageData = {
   } | null;
 };
 
+type LeadEnrichment = {
+  articleHeaderBbox?: number[];
+  personNameBoxes?: NameBox[];
+  companyNameBoxes?: NameBox[];
+} | null;
+
 const props = defineProps<{
   currentPageData?: CurrentPageData | null;
   currentPage: number;
   pageLeads: Lead[];
   selectedLeadId: string | null;
+  selectedLeadEnrichment?: LeadEnrichment;
   drawModeEnabled?: boolean;
 }>();
 const emit = defineEmits<{
@@ -264,14 +268,12 @@ const draftBoxStyle = computed(() => {
   };
 });
 
-const selectedLead = computed(
-  () =>
-    props.pageLeads.find((lead) => lead._id === props.selectedLeadId) ?? null,
-);
-
 const selectedLeadEnrichmentOverlays = computed(() => {
-  const enrichment = selectedLead.value?.enrichment;
-  if (!enrichment) return [];
+  const selectedLeadOnPage = props.pageLeads.some(
+    (lead) => lead._id === props.selectedLeadId,
+  );
+  if (!selectedLeadOnPage || !props.selectedLeadEnrichment) return [];
+  const enrichment = props.selectedLeadEnrichment;
 
   const overlays: Array<{
     key: string;
@@ -420,6 +422,19 @@ function overlayStyle(bbox: number[]) {
   };
 }
 
+function leadTooltip(lead: Lead) {
+  const category =
+    lead.category === "AI_LEAD"
+      ? "AI Lead"
+      : lead.category === "MISSED_LEAD"
+        ? "Missed Lead"
+        : "Lead";
+  if (typeof lead.confidenceScore === "number") {
+    return `${category} - ${Math.round(lead.confidenceScore)}% conf.`;
+  }
+  return category;
+}
+
 function overlayLabelStyle(overlay: {
   labelLane: number;
   labelBelow: boolean;
@@ -544,16 +559,17 @@ watch(
             class="block h-auto w-full object-contain select-none"
             draggable="false"
           />
-          <div class="pointer-events-none absolute inset-0">
+          <div class="absolute inset-0">
             <div
               v-for="lead in props.pageLeads"
               :key="lead._id"
-              class="absolute border-2 transition-colors"
+              class="pointer-events-auto absolute border-2 transition-colors"
               :class="
                 lead._id === props.selectedLeadId
                   ? 'border-emerald-500 bg-emerald-300/20'
                   : 'border-sky-500 bg-sky-300/10'
               "
+              :title="leadTooltip(lead)"
               :style="overlayStyle(lead.bbox)"
             />
             <div
