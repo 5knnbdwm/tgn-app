@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { api } from "~~/convex/_generated/api";
 import type { Id } from "~~/convex/_generated/dataModel";
+import { MoreHorizontal } from "lucide-vue-next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -36,15 +45,36 @@ const { upload, pending, error } = useConvexFileUpload(
 const { mutate: createPublication } = useConvexMutation(
   api.publications.publicationMutations.createPublicationUpload,
 );
+const { mutate: retryPublicationProcessing } = useConvexMutation(
+  api.publications.publicationMutations.retryPublicationProcessing,
+);
+const convex = useConvex();
 
-const loadMoreRef = ref<HTMLElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const selectedFileCount = ref(0);
-const batchSize = 20;
+const retryingPublicationId = ref<Id<"publications"> | null>(null);
+const downloadingPublicationId = ref<Id<"publications"> | null>(null);
+const currentPage = ref(1);
+const pageSize = 20;
 const loadedRows = computed(() => publications.value ?? []);
 const loadedCount = computed(() => loadedRows.value.length);
+const totalLoadedPages = computed(() =>
+  Math.max(1, Math.ceil(loadedRows.value.length / pageSize)),
+);
+const pagedRows = computed(() => {
+  const start = (currentPage.value - 1) * pageSize;
+  return loadedRows.value.slice(start, start + pageSize);
+});
+const canGoPrevious = computed(() => currentPage.value > 1);
+const canGoNext = computed(
+  () =>
+    currentPage.value < totalLoadedPages.value || status.value === "CanLoadMore",
+);
 const loadedLeads = computed(() =>
-  loadedRows.value.reduce((sum, publication) => sum + publication.numberOfLeads, 0),
+  loadedRows.value.reduce(
+    (sum, publication) => sum + publication.numberOfLeads,
+    0,
+  ),
 );
 const inProgressCount = computed(
   () =>
@@ -58,15 +88,35 @@ const confirmedCount = computed(
       .length,
 );
 
-useIntersectionObserver(loadMoreRef, ([entry]) => {
-  if (
-    entry?.isIntersecting &&
+watch(totalLoadedPages, (pages) => {
+  if (currentPage.value > pages) {
+    currentPage.value = pages;
+  }
+});
+
+async function goToPage(page: number) {
+  if (page < 1) return;
+
+  while (
+    page > totalLoadedPages.value &&
     status.value === "CanLoadMore" &&
     !isLoading.value
   ) {
-    void loadMore(batchSize);
+    await loadMore(pageSize);
   }
-});
+
+  currentPage.value = Math.min(page, totalLoadedPages.value);
+}
+
+async function nextPage() {
+  if (!canGoNext.value) return;
+  await goToPage(currentPage.value + 1);
+}
+
+async function previousPage() {
+  if (!canGoPrevious.value) return;
+  await goToPage(currentPage.value - 1);
+}
 
 function formatDateTime(timestamp?: number) {
   if (!timestamp) return "-";
@@ -112,6 +162,60 @@ function statusClass(statusValue: string) {
   return "border border-blue-200 bg-blue-100/90 text-blue-900";
 }
 
+function canRetryPublication(statusValue: string) {
+  return ["PROCESS_PAGE_ERROR", "PROCESS_LEAD_ERROR"].includes(statusValue);
+}
+
+async function retryPublication(publicationId: Id<"publications">) {
+  if (retryingPublicationId.value) return;
+  retryingPublicationId.value = publicationId;
+  try {
+    await retryPublicationProcessing({ publicationId });
+  } finally {
+    retryingPublicationId.value = null;
+  }
+}
+
+async function downloadPublication(publication: {
+  _id: Id<"publications">;
+  name: string;
+  publicationFileStorageId: Id<"_storage">;
+}) {
+  if (!convex || downloadingPublicationId.value) return;
+
+  downloadingPublicationId.value = publication._id;
+
+  try {
+    const fileUrl = await convex.query(api.files.getUrl, {
+      storageId: publication.publicationFileStorageId,
+    });
+    if (!fileUrl) return;
+
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const fileName = publication.name.toLowerCase().endsWith(".pdf")
+      ? publication.name
+      : `${publication.name}.pdf`;
+
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    console.error("Failed to download original publication file", error);
+  } finally {
+    downloadingPublicationId.value = null;
+  }
+}
+
 function openFilePicker() {
   fileInputRef.value?.click();
 }
@@ -143,11 +247,17 @@ async function onInputChange(event: Event) {
 </script>
 
 <template>
-  <main class="min-h-dvh bg-[radial-gradient(circle_at_10%_12%,rgba(251,191,36,0.10),transparent_40%),radial-gradient(circle_at_92%_88%,rgba(59,130,246,0.08),transparent_42%)] px-4 py-6 sm:px-6 lg:px-8">
+  <main
+    class="min-h-dvh bg-[radial-gradient(circle_at_10%_12%,rgba(251,191,36,0.10),transparent_40%),radial-gradient(circle_at_92%_88%,rgba(59,130,246,0.08),transparent_42%)] px-4 py-6 sm:px-6 lg:px-8"
+  >
     <div class="mx-auto w-full max-w-[1400px] space-y-5">
-      <header class="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm backdrop-blur">
+      <header
+        class="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm backdrop-blur"
+      >
         <div>
-          <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">Publications</h1>
+          <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Publications
+          </h1>
           <p class="text-muted-foreground mt-1 text-sm">
             Review uploaded publications and processing progress.
           </p>
@@ -173,70 +283,113 @@ async function onInputChange(event: Event) {
               {{ pending ? "Uploading..." : "Upload PDFs" }}
             </Button>
             <p class="text-sm">
-              <span v-if="pending" class="font-medium text-foreground">Processing selected files...</span>
-              <span v-else-if="selectedFileCount > 0" class="font-medium text-foreground">{{ selectedFileCount }} file(s) selected</span>
-              <span v-else class="text-muted-foreground">Choose one or more PDF files to import.</span>
+              <span v-if="pending" class="font-medium text-foreground"
+                >Processing selected files...</span
+              >
+              <span
+                v-else-if="selectedFileCount > 0"
+                class="font-medium text-foreground"
+                >{{ selectedFileCount }} file(s) selected</span
+              >
+              <span v-else class="text-muted-foreground"
+                >Choose one or more PDF files to import.</span
+              >
             </p>
           </div>
           <p class="text-muted-foreground mt-2 text-xs">
             PDF only, max 250MB per file.
           </p>
-          <p
-            v-if="error"
-            class="mt-2 text-xs font-medium text-red-700"
-          >
+          <p v-if="error" class="mt-2 text-xs font-medium text-red-700">
             Upload failed. Please try again.
           </p>
         </div>
       </header>
 
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm">
-          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">Loaded Publications</p>
+        <article
+          class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm"
+        >
+          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">
+            Loaded Publications
+          </p>
           <p class="mt-2 text-2xl font-semibold">{{ loadedCount }}</p>
         </article>
-        <article class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm">
-          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">Detected AI Leads</p>
+        <article
+          class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm"
+        >
+          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">
+            Detected AI Leads
+          </p>
           <p class="mt-2 text-2xl font-semibold">{{ loadedLeads }}</p>
         </article>
-        <article class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm">
-          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">In Progress</p>
+        <article
+          class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm"
+        >
+          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">
+            In Progress
+          </p>
           <p class="mt-2 text-2xl font-semibold">{{ inProgressCount }}</p>
         </article>
-        <article class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm">
-          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">Confirmed</p>
+        <article
+          class="rounded-xl border border-border/70 bg-card/90 p-4 shadow-sm"
+        >
+          <p class="text-muted-foreground text-xs uppercase tracking-[0.1em]">
+            Confirmed
+          </p>
           <p class="mt-2 text-2xl font-semibold">{{ confirmedCount }}</p>
         </article>
       </section>
 
-      <section class="overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-sm">
+      <section
+        class="overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-sm"
+      >
         <Table>
           <TableHeader class="sticky top-0 z-10">
             <TableRow class="bg-muted/70 backdrop-blur hover:bg-muted/70">
               <TableHead class="font-semibold">Publication</TableHead>
               <TableHead class="font-semibold">File Name</TableHead>
+              <TableHead class="font-semibold">Editor</TableHead>
               <TableHead class="font-semibold">Source</TableHead>
               <TableHead class="font-semibold">Status</TableHead>
               <TableHead class="text-right font-semibold">AI Leads</TableHead>
               <TableHead class="text-right font-semibold">Pages</TableHead>
               <TableHead class="font-semibold">Confirmed Date</TableHead>
               <TableHead class="font-semibold">Uploaded</TableHead>
+              <TableHead class="w-[50px] font-semibold">Actions</TableHead>
             </TableRow>
           </TableHeader>
 
           <TableBody>
-            <template v-if="loadedRows.length > 0">
+            <template v-if="pagedRows.length > 0">
               <TableRow
-                v-for="publication in loadedRows"
+                v-for="publication in pagedRows"
                 :key="publication._id"
                 class="odd:bg-background even:bg-muted/20"
               >
-                <TableCell class="max-w-[320px] truncate font-semibold text-foreground">
-                  {{ publication.metadata?.publicationName ?? publication.name }}
+                <TableCell
+                  class="max-w-[320px] truncate font-semibold text-foreground"
+                >
+                  {{
+                    publication.metadata?.publicationName ?? publication.name
+                  }}
                 </TableCell>
-                <TableCell class="max-w-[260px] truncate text-muted-foreground">{{ publication.name }}</TableCell>
+                <TableCell
+                  class="max-w-[260px] truncate text-muted-foreground"
+                  >{{ publication.name }}</TableCell
+                >
                 <TableCell>
-                  <Badge variant="outline" class="rounded-md px-2 py-0.5 text-[11px] tracking-wide">
+                  <NuxtLink
+                    :to="`/editor/${publication._id}?page=1`"
+                    class="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted"
+                  >
+                    Open Editor
+                  </NuxtLink>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant="outline"
+                    class="rounded-md px-2 py-0.5 text-[11px] tracking-wide"
+                  >
                     {{ publication.sourceType }}
                   </Badge>
                 </TableCell>
@@ -248,22 +401,73 @@ async function onInputChange(event: Event) {
                     {{ prettyStatus(publication.status) }}
                   </Badge>
                 </TableCell>
-                <TableCell class="text-right font-semibold tabular-nums">{{ publication.numberOfLeads }}</TableCell>
-                <TableCell class="text-right">{{ publication.pageCount }}</TableCell>
+                <TableCell class="text-right font-semibold tabular-nums">{{
+                  publication.numberOfLeads
+                }}</TableCell>
+                <TableCell class="text-right">{{
+                  publication.pageCount
+                }}</TableCell>
                 <TableCell>{{ formatDate(publication.confirmDate) }}</TableCell>
-                <TableCell class="text-muted-foreground">{{ formatDateTime(publication.createdAt) }}</TableCell>
+                <TableCell class="text-muted-foreground">{{
+                  formatDateTime(publication.createdAt)
+                }}</TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        class="size-8"
+                        :aria-label="`Actions for ${publication.name}`"
+                      >
+                        <MoreHorizontal class="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" class="w-44">
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        :disabled="downloadingPublicationId === publication._id"
+                        @select="() => void downloadPublication(publication)"
+                      >
+                        {{
+                          downloadingPublicationId === publication._id
+                            ? "Downloading..."
+                            : "Download original PDF"
+                        }}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        :disabled="
+                          !canRetryPublication(publication.status) ||
+                          retryingPublicationId === publication._id
+                        "
+                        @select="() => void retryPublication(publication._id)"
+                      >
+                        {{
+                          retryingPublicationId === publication._id
+                            ? "Retrying..."
+                            : "Retry processing"
+                        }}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
               </TableRow>
             </template>
 
             <TableEmpty
               v-else-if="status !== 'LoadingFirstPage' && !isLoading"
-              :colspan="8"
+              :colspan="10"
             >
               No publications found.
             </TableEmpty>
 
             <TableRow v-else>
-              <TableCell :colspan="8" class="py-10 text-center text-sm text-muted-foreground">
+              <TableCell
+                :colspan="10"
+                class="py-10 text-center text-sm text-muted-foreground"
+              >
                 Loading publications...
               </TableCell>
             </TableRow>
@@ -271,18 +475,55 @@ async function onInputChange(event: Event) {
         </Table>
       </section>
 
-      <section class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border/70 bg-card/80 px-4 py-3 text-sm shadow-sm">
+      <section
+        class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border/70 bg-card/80 px-4 py-3 text-sm shadow-sm"
+      >
         <div class="text-muted-foreground">
-          {{ loadedCount }} publications loaded
-          <span v-if="status === 'CanLoadMore'">. Scroll to load more.</span>
+          Page {{ currentPage }} of {{ totalLoadedPages }}
+          <span v-if="status === 'CanLoadMore'">. More pages available.</span>
           <span v-else-if="status === 'Exhausted'">. End of list.</span>
         </div>
 
-        <div
-          ref="loadMoreRef"
-          class="text-muted-foreground flex h-10 min-w-44 items-center justify-end"
-        >
-          <span v-if="isLoading">Loading more...</span>
+        <div class="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            class="h-9 px-3"
+            :disabled="!canGoPrevious || isLoading"
+            @click="previousPage"
+          >
+            Previous
+          </Button>
+
+          <Button
+            v-for="page in totalLoadedPages"
+            :key="page"
+            type="button"
+            variant="outline"
+            class="h-9 min-w-9 px-3"
+            :class="{
+              'bg-foreground text-background hover:bg-foreground hover:text-background':
+                page === currentPage,
+            }"
+            :disabled="isLoading"
+            @click="goToPage(page)"
+          >
+            {{ page }}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            class="h-9 px-3"
+            :disabled="!canGoNext || isLoading"
+            @click="nextPage"
+          >
+            {{ status === "CanLoadMore" && currentPage === totalLoadedPages ? "Load Next Page" : "Next" }}
+          </Button>
+
+          <span v-if="isLoading" class="text-muted-foreground pl-1 text-xs">
+            Loading...
+          </span>
         </div>
       </section>
     </div>

@@ -24,6 +24,15 @@ function getPositiveIntEnv(name: string, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function getPercentEnv(name: string, fallback: number) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100
+    ? parsed
+    : fallback;
+}
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -86,6 +95,9 @@ async function postPipelineWithRetry<T>(
   payload: Record<string, unknown>,
 ): Promise<T> {
   const attempts = getPositiveIntEnv("PIPELINE_HTTP_MAX_ATTEMPTS", 2);
+  const baseDelayMs = getPositiveIntEnv("PIPELINE_HTTP_BACKOFF_BASE_MS", 300);
+  const maxDelayMs = getPositiveIntEnv("PIPELINE_HTTP_BACKOFF_MAX_MS", 5000);
+  const jitterPercent = getPercentEnv("PIPELINE_HTTP_BACKOFF_JITTER_PERCENT", 20);
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -93,7 +105,15 @@ async function postPipelineWithRetry<T>(
     } catch (error) {
       lastError = error;
       if (attempt < attempts) {
-        await sleep(attempt * 300);
+        const exponentialDelay = Math.min(
+          maxDelayMs,
+          baseDelayMs * 2 ** (attempt - 1),
+        );
+        const jitterScale = jitterPercent / 100;
+        const jitterOffset =
+          exponentialDelay * jitterScale * (Math.random() * 2 - 1);
+        const delayMs = Math.max(0, Math.round(exponentialDelay + jitterOffset));
+        await sleep(delayMs);
       }
     }
   }

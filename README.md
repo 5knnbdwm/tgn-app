@@ -127,6 +127,9 @@ Convex env for pipeline calls:
 - `PIPELINE_PAGE_CONCURRENCY=2` (optional, parallel page OCR/segment workers)
 - `PIPELINE_SEGMENT_CONCURRENCY=4` (optional, parallel segment classify/enrich workers)
 - `PIPELINE_HTTP_MAX_ATTEMPTS=2` (optional, retry for pipeline HTTP calls)
+- `PIPELINE_HTTP_BACKOFF_BASE_MS=300` (optional, initial retry delay)
+- `PIPELINE_HTTP_BACKOFF_MAX_MS=5000` (optional, cap for exponential backoff)
+- `PIPELINE_HTTP_BACKOFF_JITTER_PERCENT=20` (optional, +/- jitter percentage on delay)
 
 ## Railway: Single Project, Two Services
 

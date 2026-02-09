@@ -256,3 +256,53 @@ export const finalizeLeadProcessing = internalMutation({
     return activeLeadCount;
   },
 });
+
+export const retryPublicationProcessing = mutation({
+  args: {
+    publicationId: v.id("publications"),
+  },
+  handler: async (ctx, args) => {
+    const publication = await ctx.db.get(args.publicationId);
+    if (!publication) {
+      throw new Error("Publication not found");
+    }
+
+    if (publication.status === "PROCESS_PAGE_ERROR") {
+      await ctx.db.patch(args.publicationId, {
+        status: "PAGE_PROCESSING",
+        processPageAttempt: publication.processPageAttempt + 1,
+        errorCode: undefined,
+        errorMessage: undefined,
+        updatedAt: nowTs(),
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.publications.publicationActions.enqueuePublicationProcessing,
+        {
+          publicationId: args.publicationId,
+          storageId: publication.publicationFileStorageId,
+        },
+      );
+      return { queued: true, status: "PAGE_PROCESSING" as PublicationStatus };
+    }
+
+    if (publication.status === "PROCESS_LEAD_ERROR") {
+      await ctx.db.patch(args.publicationId, {
+        status: "LEAD_PROCESSING",
+        errorCode: undefined,
+        errorMessage: undefined,
+        updatedAt: nowTs(),
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.pipeline.pipelineActions.runPublicationPipelineInternal,
+        {
+          publicationId: args.publicationId,
+        },
+      );
+      return { queued: true, status: "LEAD_PROCESSING" as PublicationStatus };
+    }
+
+    return { queued: false, status: publication.status };
+  },
+});
