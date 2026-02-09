@@ -54,6 +54,80 @@ export const createPublicationUpload = mutation({
   },
 });
 
+export const createMissedLead = mutation({
+  args: {
+    publicationId: v.id("publications"),
+    pageNumber: v.number(),
+    bbox: v.array(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const publication = await ctx.db.get(args.publicationId);
+    if (!publication) {
+      throw new Error("Publication not found");
+    }
+
+    if (args.pageNumber < 1 || args.pageNumber > publication.pageCount) {
+      throw new Error("Invalid page number");
+    }
+
+    if (args.bbox.length !== 4) {
+      throw new Error("bbox must have 4 coordinates");
+    }
+    const [x1, y1, x2, y2] = args.bbox;
+    if (
+      ![x1, y1, x2, y2].every(Number.isFinite) ||
+      x2 <= x1 ||
+      y2 <= y1
+    ) {
+      throw new Error("Invalid bbox");
+    }
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Authentication required");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_auth_id", (q) => q.eq("authId", identity.subject))
+      .first();
+    if (!user) {
+      throw new Error("Authenticated user not found");
+    }
+
+    const ts = nowTs();
+    const leadId = await ctx.db.insert("leads", {
+      publicationId: args.publicationId,
+      pageNumber: args.pageNumber,
+      bbox: args.bbox,
+      category: "MISSED_LEAD",
+      confidenceScore: 100,
+      prediction: "positive",
+      source: "MANUAL_EDITOR",
+      createdByUserId: user._id,
+      isDeleted: false,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+
+    const leads = await ctx.db
+      .query("leads")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
+      .collect();
+    const activeLeadCount = leads.filter((lead) => !lead.isDeleted).length;
+    await ctx.db.patch(args.publicationId, {
+      numberOfLeads: activeLeadCount,
+      status: "LEADS_FOUND",
+      leadObtainedAt: ts,
+      updatedAt: ts,
+    });
+
+    return leadId;
+  },
+});
+
 export const updatePublicationStatus = internalMutation({
   args: {
     publicationId: v.id("publications"),
