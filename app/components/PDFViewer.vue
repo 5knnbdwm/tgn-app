@@ -42,8 +42,19 @@ const emit = defineEmits<{
   ): void;
 }>();
 
-const pageImageScrollContainer = ref<HTMLElement | null>(null);
-const pageOverlayRef = ref<HTMLElement | null>(null);
+type NormalizedPoint = {
+  x: number;
+  y: number;
+};
+
+type NormalizedPointWithSize = NormalizedPoint & {
+  width: number;
+  height: number;
+};
+
+const pageImageScrollContainer =
+  useTemplateRef<HTMLDivElement>("pageImageScrollContainer");
+const pageOverlayRef = useTemplateRef<HTMLDivElement>("pageOverlayRef");
 const isDraggingImage = ref(false);
 const imageDragStart = ref<{
   x: number;
@@ -60,8 +71,8 @@ const viewportInnerHeight = ref(0);
 let viewportResizeObserver: ResizeObserver | null = null;
 let drawMoveListener: ((event: MouseEvent) => void) | null = null;
 let drawEndListener: ((event: MouseEvent) => void) | null = null;
-const drawStartPoint = ref<{ x: number; y: number } | null>(null);
-const drawCurrentPoint = ref<{ x: number; y: number } | null>(null);
+const drawStartPoint = ref<NormalizedPoint | null>(null);
+const drawCurrentPoint = ref<NormalizedPoint | null>(null);
 const isDrawingBox = ref(false);
 const MIN_DRAW_SIZE_PX = 8;
 const fitHeightZoom = computed(() => {
@@ -185,7 +196,9 @@ function resetDrawState() {
   removeDrawListeners();
 }
 
-function pointFromMouseEvent(event: MouseEvent) {
+function pointFromMouseEvent(
+  event: MouseEvent,
+): NormalizedPointWithSize | null {
   const overlay = pageOverlayRef.value;
   if (!overlay) return null;
   const rect = overlay.getBoundingClientRect();
@@ -218,19 +231,24 @@ function onDrawStart(event: MouseEvent) {
     }
     const page = props.currentPageData?.page;
     const start = drawStartPoint.value;
-    const end = pointFromMouseEvent(upEvent) ?? drawCurrentPoint.value;
+    const endPoint = pointFromMouseEvent(upEvent);
+    const end = endPoint ?? drawCurrentPoint.value;
     if (!page || !start || !end) {
       resetDrawState();
       return;
     }
+
+    const overlay = pageOverlayRef.value;
+    const overlayWidth = endPoint?.width ?? overlay?.clientWidth ?? 0;
+    const overlayHeight = endPoint?.height ?? overlay?.clientHeight ?? 0;
 
     const x1 = Math.min(start.x, end.x);
     const y1 = Math.min(start.y, end.y);
     const x2 = Math.max(start.x, end.x);
     const y2 = Math.max(start.y, end.y);
     if (
-      (x2 - x1) * end.width < MIN_DRAW_SIZE_PX ||
-      (y2 - y1) * end.height < MIN_DRAW_SIZE_PX
+      (x2 - x1) * overlayWidth < MIN_DRAW_SIZE_PX ||
+      (y2 - y1) * overlayHeight < MIN_DRAW_SIZE_PX
     ) {
       resetDrawState();
       return;
