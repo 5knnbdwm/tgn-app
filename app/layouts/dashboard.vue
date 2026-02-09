@@ -3,7 +3,11 @@ import { api } from "~~/convex/_generated/api";
 
 const authClient = useAuthClient();
 const { isAuthenticated, isPending } = useConvexAuth();
-const permissionContext = useConvexQuery(api.auth.getPermissionContext, {});
+const permissionContextQuery = useConvexQuery(
+  api.auth.getPermissionContext,
+  {},
+);
+const permissionContext = computed(() => permissionContextQuery.data.value);
 const colorMode = useColorMode();
 
 const isDarkMode = computed(() => colorMode.value === "dark");

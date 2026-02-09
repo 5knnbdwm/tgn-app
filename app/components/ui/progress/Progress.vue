@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const props = withDefaults(
   defineProps<ProgressRootProps & { class?: HTMLAttributes["class"] }>(),
   {
+    class: undefined,
     modelValue: 0,
   },
 );

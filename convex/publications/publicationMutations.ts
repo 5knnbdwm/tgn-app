@@ -73,7 +73,7 @@ export const createMissedLead = mutation({
     if (args.bbox.length !== 4) {
       throw new Error("bbox must have 4 coordinates");
     }
-    const [x1, y1, x2, y2] = args.bbox;
+    const [x1, y1, x2, y2] = args.bbox as [number, number, number, number];
     if (
       ![x1, y1, x2, y2].every(Number.isFinite) ||
       x2 <= x1 ||

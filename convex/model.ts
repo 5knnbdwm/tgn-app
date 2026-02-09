@@ -59,11 +59,13 @@ export function assertBbox(bbox: number[]): BBox {
   if (bbox.length !== 4) {
     throw new Error("Bounding box must contain 4 numbers [x1,y1,x2,y2]");
   }
-  const [x1, y1, x2, y2] = bbox;
+
+  const normalized = bbox as [number, number, number, number];
+  const [x1, y1, x2, y2] = normalized;
   if (x2 <= x1 || y2 <= y1) {
     throw new Error("Bounding box must satisfy x2>x1 and y2>y1");
   }
-  return [x1, y1, x2, y2];
+  return normalized;
 }
 
 export function overlaps(a: BBox, b: BBox) {

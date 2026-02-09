@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import type { ActionCtx } from "../_generated/server";
 import { assertBbox, overlaps } from "../model";
 
 type WordBox = { text: string; bbox: number[] };
@@ -140,7 +141,7 @@ function wordsForSegment(
 }
 
 async function runPipeline(
-  ctx: any,
+  ctx: ActionCtx,
   publicationId: Id<"publications">,
 ): Promise<PipelineResult> {
   const pageConcurrency = getPositiveIntEnv("PIPELINE_PAGE_CONCURRENCY", 2);

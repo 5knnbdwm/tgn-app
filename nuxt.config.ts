@@ -1,4 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
+import type { PluginOption } from "vite";
+
+const tailwindPlugin = tailwindcss() as unknown as PluginOption;
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -29,7 +32,7 @@ export default defineNuxtConfig({
   css: ["./app/assets/css/main.css"],
 
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [tailwindPlugin],
   },
 
   shadcn: {
