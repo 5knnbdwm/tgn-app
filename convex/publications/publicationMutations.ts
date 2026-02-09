@@ -125,14 +125,18 @@ export const upsertPageOcr = internalMutation({
       v.literal("OTHER"),
     ),
     version: v.optional(v.string()),
-    wordBoxes: v.array(v.object({ text: v.string(), bbox: v.array(v.number()) })),
+    wordBoxes: v.array(
+      v.object({ text: v.string(), bbox: v.array(v.number()) }),
+    ),
     plainText: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("pageOcr")
       .withIndex("by_publicationId_pageNumber", (q) =>
-        q.eq("publicationId", args.publicationId).eq("pageNumber", args.pageNumber),
+        q
+          .eq("publicationId", args.publicationId)
+          .eq("pageNumber", args.pageNumber),
       )
       .first();
     const payload = {
@@ -159,12 +163,16 @@ export const clearAiLeads = internalMutation({
   handler: async (ctx, args) => {
     const leads = await ctx.db
       .query("leads")
-      .withIndex("by_publicationId", (q) => q.eq("publicationId", args.publicationId))
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
       .collect();
     await Promise.all(
       leads
         .filter((lead) => lead.category === "AI_LEAD")
-        .map((lead) => ctx.db.patch(lead._id, { isDeleted: true, updatedAt: nowTs() })),
+        .map((lead) =>
+          ctx.db.patch(lead._id, { isDeleted: true, updatedAt: nowTs() }),
+        ),
     );
     return true;
   },
@@ -242,7 +250,8 @@ export const upsertLeadEnrichment = internalMutation({
       companyNameBoxes: args.companyNameBoxes,
       errorMessage: args.errorMessage,
       startedAt: args.status === "PROCESSING" ? ts : undefined,
-      completedAt: args.status === "DONE" || args.status === "ERROR" ? ts : undefined,
+      completedAt:
+        args.status === "DONE" || args.status === "ERROR" ? ts : undefined,
       updatedAt: ts,
     };
     if (existing) {
@@ -264,7 +273,9 @@ export const finalizeLeadProcessing = internalMutation({
   handler: async (ctx, args) => {
     const leads = await ctx.db
       .query("leads")
-      .withIndex("by_publicationId", (q) => q.eq("publicationId", args.publicationId))
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
       .collect();
     const activeLeadCount = leads.filter((lead) => !lead.isDeleted).length;
     await ctx.db.patch(args.publicationId, {

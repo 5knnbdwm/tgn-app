@@ -162,20 +162,9 @@ type NameBox = {
   bbox: number[];
 };
 
-function bboxLabel(bbox?: number[] | null) {
-  if (!bbox || bbox.length !== 4) return "-";
-  const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = bbox;
-  return `[${Math.round(x1)}, ${Math.round(y1)}, ${Math.round(x2)}, ${Math.round(y2)}]`;
-}
-
-function formatNamesWithBboxes(names?: string[], boxes?: NameBox[]) {
+function formatNames(names?: string[]) {
   if (!names?.length) return "-";
-  return names
-    .map((name) => {
-      const bbox = boxes?.find((entry) => entry.name === name)?.bbox;
-      return bbox ? `${name} ${bboxLabel(bbox)}` : name;
-    })
-    .join(", ");
+  return names.join(", ");
 }
 
 function zoomIn() {
@@ -226,6 +215,8 @@ const selectedLeadEnrichmentOverlays = computed(() => {
     kind: "header" | "person" | "company";
     label: string;
     bbox: number[];
+    labelLane: number;
+    labelBelow: boolean;
   }> = [];
 
   if (enrichment.articleHeaderBbox?.length === 4) {
@@ -234,6 +225,8 @@ const selectedLeadEnrichmentOverlays = computed(() => {
       kind: "header",
       label: "Header",
       bbox: enrichment.articleHeaderBbox,
+      labelLane: 0,
+      labelBelow: false,
     });
   }
 
@@ -244,6 +237,8 @@ const selectedLeadEnrichmentOverlays = computed(() => {
         kind: "person",
         label: `Person: ${entry.name}`,
         bbox: entry.bbox,
+        labelLane: 0,
+        labelBelow: false,
       });
     }
   });
@@ -256,12 +251,82 @@ const selectedLeadEnrichmentOverlays = computed(() => {
           kind: "company",
           label: `Company: ${entry.name}`,
           bbox: entry.bbox,
+          labelLane: 0,
+          labelBelow: false,
         });
       }
     },
   );
 
-  return overlays;
+  const labelHeight = 18;
+  const labelGap = 4;
+  const laneStep = labelHeight + 2;
+  const positioned: Array<{
+    key: string;
+    kind: "header" | "person" | "company";
+    label: string;
+    bbox: number[];
+    labelLane: number;
+    labelBelow: boolean;
+    x1: number;
+    x2: number;
+    y: number;
+  }> = [];
+  const sortedOverlays = overlays
+    .slice()
+    .sort((left, right) => left.bbox[1] - right.bbox[1] || left.bbox[0] - right.bbox[0]);
+
+  for (const overlay of sortedOverlays) {
+    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = overlay.bbox;
+    const labelWidth = Math.max(70, Math.min(240, overlay.label.length * 7 + 18));
+    const labelX1 = x1;
+    const labelX2 = x1 + labelWidth;
+
+    let lane = 0;
+    let placeBelow = false;
+    let labelY = y1 - (labelHeight + labelGap);
+    while (lane < 8) {
+      labelY = y1 - (labelHeight + labelGap + lane * laneStep);
+      if (labelY < 0) {
+        placeBelow = true;
+        lane = 0;
+        break;
+      }
+      const collides = positioned.some(
+        (placed) =>
+          !placed.labelBelow &&
+          Math.abs(placed.y - labelY) < labelHeight &&
+          Math.max(placed.x1, labelX1) < Math.min(placed.x2, labelX2),
+      );
+      if (!collides) break;
+      lane += 1;
+    }
+
+    if (placeBelow) {
+      while (lane < 8) {
+        labelY = y2 + labelGap + lane * laneStep;
+        const collides = positioned.some(
+          (placed) =>
+            placed.labelBelow &&
+            Math.abs(placed.y - labelY) < labelHeight &&
+            Math.max(placed.x1, labelX1) < Math.min(placed.x2, labelX2),
+        );
+        if (!collides) break;
+        lane += 1;
+      }
+    }
+
+    positioned.push({
+      ...overlay,
+      labelLane: lane,
+      labelBelow: placeBelow,
+      x1: labelX1,
+      x2: labelX2,
+      y: labelY,
+    });
+  }
+
+  return positioned;
 });
 
 function overlayStyle(bbox: number[]) {
@@ -279,6 +344,23 @@ function overlayStyle(bbox: number[]) {
     top: `${Math.max(0, top)}%`,
     width: `${Math.max(0, width)}%`,
     height: `${Math.max(0, height)}%`,
+  };
+}
+
+function overlayLabelStyle(overlay: { labelLane: number; labelBelow: boolean }) {
+  const labelHeight = 18;
+  const labelGap = 4;
+  const laneStep = labelHeight + 2;
+  const offset = labelGap + overlay.labelLane * laneStep;
+  if (overlay.labelBelow) {
+    return {
+      left: "0px",
+      top: `calc(100% + ${offset}px)`,
+    };
+  }
+  return {
+    left: "0px",
+    top: `-${labelHeight + offset}px`,
   };
 }
 
@@ -512,7 +594,8 @@ watch(
                       :style="overlayStyle(overlay.bbox)"
                     >
                       <span
-                        class="absolute -top-5 left-0 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                        class="absolute left-0 max-w-[240px] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                        :style="overlayLabelStyle(overlay)"
                       >
                         {{ overlay.label }}
                       </span>
@@ -599,27 +682,17 @@ watch(
                   <p class="text-muted-foreground mt-1 text-xs">
                     Enrichment: {{ lead.enrichment?.status || "PENDING" }}
                   </p>
-                  <p class="text-muted-foreground mt-1 text-xs">
-                    Header bbox: {{ bboxLabel(lead.enrichment?.articleHeaderBbox) }}
-                  </p>
-
                   <div class="mt-2 space-y-1 text-xs">
                     <p>
                       <span class="text-muted-foreground">Persons:</span>
                       {{
-                        formatNamesWithBboxes(
-                          lead.enrichment?.personNames,
-                          lead.enrichment?.personNameBoxes,
-                        )
+                        formatNames(lead.enrichment?.personNames)
                       }}
                     </p>
                     <p>
                       <span class="text-muted-foreground">Companies:</span>
                       {{
-                        formatNamesWithBboxes(
-                          lead.enrichment?.companyNames,
-                          lead.enrichment?.companyNameBoxes,
-                        )
+                        formatNames(lead.enrichment?.companyNames)
                       }}
                     </p>
                   </div>

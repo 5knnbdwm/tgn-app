@@ -295,7 +295,11 @@ async function runPipeline(
                   leadId,
                   status: "DONE",
                   articleHeader: enrichment.article_header,
-                  articleHeaderBbox: enrichment.article_header_bbox,
+                  articleHeaderBbox:
+                    Array.isArray(enrichment.article_header_bbox) &&
+                    enrichment.article_header_bbox.length === 4
+                      ? enrichment.article_header_bbox
+                      : undefined,
                   personNames: enrichment.person_names ?? [],
                   personNameBoxes: (enrichment.person_name_boxes ?? []).filter(
                     (entry) =>
