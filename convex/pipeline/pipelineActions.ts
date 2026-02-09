@@ -124,11 +124,19 @@ function wordsInSegment(
   words: WordBox[],
   bbox: [number, number, number, number],
 ) {
+  return wordsForSegment(words, bbox)
+    .map((word) => word.text)
+    .join(" ");
+}
+
+function wordsForSegment(
+  words: WordBox[],
+  bbox: [number, number, number, number],
+) {
   return words
     .filter((word) => word.bbox.length === 4)
     .filter((word) => overlaps(assertBbox(word.bbox), bbox))
-    .map((word) => word.text)
-    .join(" ");
+    .map((word) => ({ text: word.text, bbox: assertBbox(word.bbox) }));
 }
 
 async function runPipeline(
@@ -220,6 +228,7 @@ async function runPipeline(
           async (segment): Promise<number> => {
             const bbox = assertBbox(segment.bbox);
             const segmentText = wordsInSegment(wordBoxes, bbox);
+            const segmentWordBoxes = wordsForSegment(wordBoxes, bbox);
             const classifyResult = await postPipelineWithRetry<{
               is_lead: boolean;
               confidence?: number;
@@ -261,13 +270,23 @@ async function runPipeline(
             try {
               const enrichment = await postPipelineWithRetry<{
                 article_header?: string;
+                article_header_bbox?: [number, number, number, number];
                 person_names?: string[];
+                person_name_boxes?: Array<{
+                  name?: string;
+                  bbox?: [number, number, number, number];
+                }>;
                 company_names?: string[];
+                company_name_boxes?: Array<{
+                  name?: string;
+                  bbox?: [number, number, number, number];
+                }>;
               }>("/enrich/lead", {
                 publication_id: publicationId,
                 page_number: page.pageNumber,
                 segment_bbox: bbox,
                 text: segmentText,
+                word_boxes: segmentWordBoxes,
               });
 
               await ctx.runMutation(
@@ -276,8 +295,21 @@ async function runPipeline(
                   leadId,
                   status: "DONE",
                   articleHeader: enrichment.article_header,
+                  articleHeaderBbox: enrichment.article_header_bbox,
                   personNames: enrichment.person_names ?? [],
+                  personNameBoxes: (enrichment.person_name_boxes ?? []).filter(
+                    (entry) =>
+                      typeof entry.name === "string" &&
+                      Array.isArray(entry.bbox) &&
+                      entry.bbox.length === 4,
+                  ) as Array<{ name: string; bbox: [number, number, number, number] }>,
                   companyNames: enrichment.company_names ?? [],
+                  companyNameBoxes: (enrichment.company_name_boxes ?? []).filter(
+                    (entry) =>
+                      typeof entry.name === "string" &&
+                      Array.isArray(entry.bbox) &&
+                      entry.bbox.length === 4,
+                  ) as Array<{ name: string; bbox: [number, number, number, number] }>,
                 },
               );
             } catch (error) {

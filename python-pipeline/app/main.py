@@ -326,12 +326,21 @@ class EnrichLeadRequest(BaseModel):
     page_number: int
     segment_bbox: list[float]
     text: str
+    word_boxes: list[WordBox] = Field(default_factory=list)
+
+
+class NamedEntityBox(BaseModel):
+    name: str
+    bbox: list[float]
 
 
 class EnrichLeadResponse(BaseModel):
     article_header: str
+    article_header_bbox: list[float] | None = None
     person_names: list[str]
+    person_name_boxes: list[NamedEntityBox] = Field(default_factory=list)
     company_names: list[str]
+    company_name_boxes: list[NamedEntityBox] = Field(default_factory=list)
 
 
 def _extract_names(text: str) -> list[str]:
@@ -353,6 +362,32 @@ def _extract_companies(text: str) -> list[str]:
     return companies[:8]
 
 
+def _normalize_token(token: str) -> str:
+    return re.sub(r"(^[\W_]+|[\W_]+$)", "", token).lower()
+
+
+def _find_phrase_bbox(phrase: str, word_boxes: list[WordBox]) -> list[float] | None:
+    phrase_tokens = [_normalize_token(token) for token in phrase.split()]
+    phrase_tokens = [token for token in phrase_tokens if token]
+    if not phrase_tokens:
+        return None
+
+    normalized_words = [_normalize_token(word.text) for word in word_boxes]
+    for start in range(0, len(normalized_words) - len(phrase_tokens) + 1):
+        window = normalized_words[start : start + len(phrase_tokens)]
+        if window != phrase_tokens:
+            continue
+
+        matched = word_boxes[start : start + len(phrase_tokens)]
+        xs1 = [word.bbox[0] for word in matched]
+        ys1 = [word.bbox[1] for word in matched]
+        xs2 = [word.bbox[2] for word in matched]
+        ys2 = [word.bbox[3] for word in matched]
+        return [min(xs1), min(ys1), max(xs2), max(ys2)]
+
+    return None
+
+
 @app.post("/enrich/lead", response_model=EnrichLeadResponse, dependencies=[Depends(_require_api_key)])
 def enrich_lead(payload: EnrichLeadRequest) -> EnrichLeadResponse:
     lines = [line.strip() for line in payload.text.splitlines() if line.strip()]
@@ -361,10 +396,28 @@ def enrich_lead(payload: EnrichLeadRequest) -> EnrichLeadResponse:
     else:
         words = payload.text.split()
         header = " ".join(words[:10]) if words else "Untitled lead"
+    article_header = header[:180]
+    person_names = _extract_names(payload.text)
+    company_names = _extract_companies(payload.text)
+    article_header_bbox = _find_phrase_bbox(article_header, payload.word_boxes)
+    person_name_boxes = [
+        NamedEntityBox(name=name, bbox=bbox)
+        for name in person_names
+        if (bbox := _find_phrase_bbox(name, payload.word_boxes)) is not None
+    ]
+    company_name_boxes = [
+        NamedEntityBox(name=name, bbox=bbox)
+        for name in company_names
+        if (bbox := _find_phrase_bbox(name, payload.word_boxes)) is not None
+    ]
+
     return EnrichLeadResponse(
-        article_header=header[:180],
-        person_names=_extract_names(payload.text),
-        company_names=_extract_companies(payload.text),
+        article_header=article_header,
+        article_header_bbox=article_header_bbox,
+        person_names=person_names,
+        person_name_boxes=person_name_boxes,
+        company_names=company_names,
+        company_name_boxes=company_name_boxes,
     )
 
 

@@ -148,8 +148,25 @@ export default defineSchema({
       v.literal("ERROR"),
     ),
     articleHeader: v.optional(v.string()),
+    articleHeaderBbox: v.optional(v.array(v.number())),
     personNames: v.optional(v.array(v.string())),
+    personNameBoxes: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          bbox: v.array(v.number()),
+        }),
+      ),
+    ),
     companyNames: v.optional(v.array(v.string())),
+    companyNameBoxes: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          bbox: v.array(v.number()),
+        }),
+      ),
+    ),
     errorMessage: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
