@@ -7,6 +7,8 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-vue-next";
 
 definePageMeta({ middleware: "auth", layout: "dashboard" });
@@ -43,6 +45,12 @@ const { mutate: retryPublicationProcessing } = useConvexMutation(
 const selectedLeadId = ref<string | null>(null);
 const expandedPageNumber = ref<number | null>(null);
 const retryingProcessing = ref(false);
+const leadSidebarScrollContainer = ref<HTMLElement | null>(null);
+const leadPageSectionRefs = ref<Record<number, HTMLElement | null>>({});
+const MIN_ZOOM = 100;
+const MAX_ZOOM = 300;
+const ZOOM_STEP = 25;
+const zoomPercent = ref(100);
 const sidebar = computed(() => sidebarData.data.value);
 const currentPageData = computed(() => pageData.data.value);
 const publicationStatus = computed(() => sidebar.value?.publication.status);
@@ -51,6 +59,12 @@ const pageLeads = computed(() => currentPageData.value?.leads ?? []);
 const pagesWithLeads = computed(() => sidebar.value?.pagesWithLeads ?? []);
 const pageNumbersWithLeads = computed(() =>
   pagesWithLeads.value.map((entry) => entry.pageNumber).sort((a, b) => a - b),
+);
+const previousPage = computed(() =>
+  currentPage.value > 1 ? currentPage.value - 1 : null,
+);
+const nextPage = computed(() =>
+  currentPage.value < maxPage.value ? currentPage.value + 1 : null,
 );
 const previousLeadPage = computed(() => {
   const current = currentPage.value;
@@ -143,10 +157,112 @@ function confidenceLabel(score: number) {
   return `${Math.round(score)}% confidence`;
 }
 
+type NameBox = {
+  name: string;
+  bbox: number[];
+};
+
+function bboxLabel(bbox?: number[] | null) {
+  if (!bbox || bbox.length !== 4) return "-";
+  const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = bbox;
+  return `[${Math.round(x1)}, ${Math.round(y1)}, ${Math.round(x2)}, ${Math.round(y2)}]`;
+}
+
+function formatNamesWithBboxes(names?: string[], boxes?: NameBox[]) {
+  if (!names?.length) return "-";
+  return names
+    .map((name) => {
+      const bbox = boxes?.find((entry) => entry.name === name)?.bbox;
+      return bbox ? `${name} ${bboxLabel(bbox)}` : name;
+    })
+    .join(", ");
+}
+
+function zoomIn() {
+  zoomPercent.value = Math.min(MAX_ZOOM, zoomPercent.value + ZOOM_STEP);
+}
+
+function zoomOut() {
+  zoomPercent.value = Math.max(MIN_ZOOM, zoomPercent.value - ZOOM_STEP);
+}
+
+function resetZoom() {
+  zoomPercent.value = 100;
+}
+
 function togglePageExpansion(pageNumber: number) {
   expandedPageNumber.value =
     expandedPageNumber.value === pageNumber ? null : pageNumber;
 }
+
+function setLeadPageSectionRef(pageNumber: number, element: Element | null) {
+  leadPageSectionRefs.value[pageNumber] = element as HTMLElement | null;
+}
+
+function scrollLeadPageIntoView(pageNumber: number) {
+  const container = leadSidebarScrollContainer.value;
+  const section = leadPageSectionRefs.value[pageNumber];
+  if (!container || !section) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const sectionRect = section.getBoundingClientRect();
+  const isAbove = sectionRect.top < containerRect.top;
+  const isBelow = sectionRect.bottom > containerRect.bottom;
+  if (isAbove || isBelow) {
+    section.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+const selectedLead = computed(
+  () => pageLeads.value.find((lead) => lead._id === selectedLeadId.value) ?? null,
+);
+
+const selectedLeadEnrichmentOverlays = computed(() => {
+  const enrichment = selectedLead.value?.enrichment;
+  if (!enrichment) return [];
+
+  const overlays: Array<{
+    key: string;
+    kind: "header" | "person" | "company";
+    label: string;
+    bbox: number[];
+  }> = [];
+
+  if (enrichment.articleHeaderBbox?.length === 4) {
+    overlays.push({
+      key: "header",
+      kind: "header",
+      label: "Header",
+      bbox: enrichment.articleHeaderBbox,
+    });
+  }
+
+  (enrichment.personNameBoxes ?? []).forEach((entry: NameBox, index: number) => {
+    if (entry.bbox?.length === 4) {
+      overlays.push({
+        key: `person-${entry.name}-${index}`,
+        kind: "person",
+        label: `Person: ${entry.name}`,
+        bbox: entry.bbox,
+      });
+    }
+  });
+
+  (enrichment.companyNameBoxes ?? []).forEach(
+    (entry: NameBox, index: number) => {
+      if (entry.bbox?.length === 4) {
+        overlays.push({
+          key: `company-${entry.name}-${index}`,
+          kind: "company",
+          label: `Company: ${entry.name}`,
+          bbox: entry.bbox,
+        });
+      }
+    },
+  );
+
+  return overlays;
+});
 
 function overlayStyle(bbox: number[]) {
   const page = currentPageData.value?.page;
@@ -165,6 +281,18 @@ function overlayStyle(bbox: number[]) {
     height: `${Math.max(0, height)}%`,
   };
 }
+
+watch(
+  currentPage,
+  async (pageNumber) => {
+    if (!pagesWithLeads.value.some((entry) => entry.pageNumber === pageNumber)) {
+      return;
+    }
+    await nextTick();
+    scrollLeadPageIntoView(pageNumber);
+  },
+  { flush: "post" },
+);
 </script>
 
 <template>
@@ -223,43 +351,86 @@ function overlayStyle(bbox: number[]) {
             </p>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2">
-            <ButtonGroup>
-              <Button
-                variant="outline"
-                :disabled="currentPage <= 1"
-                @click="setPage(currentPage - 1)"
+          <div class="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
+            <section
+              class="rounded-xl border border-sky-200/70 bg-gradient-to-r from-sky-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+            >
+              <p
+                class="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-700"
               >
-                <ChevronLeft class="size-4" />
-                Previous Page
-              </Button>
-              <Button
-                variant="outline"
-                :disabled="currentPage >= maxPage"
-                @click="setPage(currentPage + 1)"
+                Page Navigation
+              </p>
+              <ButtonGroup class="mt-1 w-full">
+                <Button
+                  variant="outline"
+                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50"
+                  :disabled="!previousPage"
+                  @click="previousPage && setPage(previousPage)"
+                >
+                  <span class="inline-flex items-center gap-1.5 text-xs">
+                    <ChevronLeft class="size-3.5" />
+                    Prev Page
+                  </span>
+                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px]">
+                    {{ previousPage ?? "-" }}
+                  </span>
+                </Button>
+                <Button
+                  variant="outline"
+                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50"
+                  :disabled="!nextPage"
+                  @click="nextPage && setPage(nextPage)"
+                >
+                  <span class="inline-flex items-center gap-1.5 text-xs">
+                    Next Page
+                    <ChevronRight class="size-3.5" />
+                  </span>
+                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px]">
+                    {{ nextPage ?? "-" }}
+                  </span>
+                </Button>
+              </ButtonGroup>
+            </section>
+
+            <section
+              class="rounded-xl border border-emerald-200/70 bg-gradient-to-r from-emerald-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+            >
+              <p
+                class="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700"
               >
-                Next Page
-                <ChevronRight class="size-4" />
-              </Button>
-            </ButtonGroup>
-            <ButtonGroup>
-              <Button
-                variant="outline"
-                :disabled="!previousLeadPage"
-                @click="previousLeadPage && setPage(previousLeadPage)"
-              >
-                <ChevronLeft class="size-4" />
-                Previous Lead
-              </Button>
-              <Button
-                variant="outline"
-                :disabled="!nextLeadPage"
-                @click="nextLeadPage && setPage(nextLeadPage)"
-              >
-                Next Lead
-                <ChevronRight class="size-4" />
-              </Button>
-            </ButtonGroup>
+                Lead Navigation
+              </p>
+              <ButtonGroup class="mt-1 w-full">
+                <Button
+                  variant="outline"
+                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50"
+                  :disabled="!previousLeadPage"
+                  @click="previousLeadPage && setPage(previousLeadPage)"
+                >
+                  <span class="inline-flex items-center gap-1.5 text-xs">
+                    <ChevronLeft class="size-3.5" />
+                    Prev Lead
+                  </span>
+                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px]">
+                    {{ previousLeadPage ?? "-" }}
+                  </span>
+                </Button>
+                <Button
+                  variant="outline"
+                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50"
+                  :disabled="!nextLeadPage"
+                  @click="nextLeadPage && setPage(nextLeadPage)"
+                >
+                  <span class="inline-flex items-center gap-1.5 text-xs">
+                    Next Lead
+                    <ChevronRight class="size-3.5" />
+                  </span>
+                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px]">
+                    {{ nextLeadPage ?? "-" }}
+                  </span>
+                </Button>
+              </ButtonGroup>
+            </section>
           </div>
         </div>
       </header>
@@ -274,6 +445,30 @@ function overlayStyle(bbox: number[]) {
             class="h-full overflow-auto rounded-xl border border-border/70 bg-muted/20 p-3"
           >
             <div class="mx-auto max-w-[900px]">
+              <div class="mb-3 flex items-center justify-end gap-2">
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  :disabled="zoomPercent <= MIN_ZOOM"
+                  aria-label="Zoom out"
+                  @click="zoomOut"
+                >
+                  <ZoomOut class="size-4" />
+                </Button>
+                <Button size="xs" variant="outline" @click="resetZoom">
+                  {{ zoomPercent }}%
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  :disabled="zoomPercent >= MAX_ZOOM"
+                  aria-label="Zoom in"
+                  @click="zoomIn"
+                >
+                  <ZoomIn class="size-4" />
+                </Button>
+              </div>
+
               <div
                 v-if="!currentPageData?.pageImageUrl"
                 class="text-muted-foreground flex min-h-[560px] items-center justify-center rounded-lg border border-dashed border-border text-sm"
@@ -283,25 +478,46 @@ function overlayStyle(bbox: number[]) {
 
               <div
                 v-else
-                class="relative overflow-hidden rounded-lg border border-border bg-white shadow-inner"
+                class="overflow-auto rounded-lg border border-border bg-white shadow-inner"
               >
-                <img
-                  :src="currentPageData.pageImageUrl"
-                  :alt="`Publication page ${currentPage}`"
-                  class="h-auto w-full object-contain select-none"
-                />
-                <div class="pointer-events-none absolute inset-0">
-                  <div
-                    v-for="lead in pageLeads"
-                    :key="lead._id"
-                    class="absolute border-2 transition-colors"
-                    :class="
-                      lead._id === selectedLeadId
-                        ? 'border-emerald-500 bg-emerald-300/20'
-                        : 'border-sky-500 bg-sky-300/10'
-                    "
-                    :style="overlayStyle(lead.bbox)"
+                <div class="relative min-w-full" :style="{ width: `${zoomPercent}%` }">
+                  <img
+                    :src="currentPageData.pageImageUrl"
+                    :alt="`Publication page ${currentPage}`"
+                    class="h-auto w-full object-contain select-none"
                   />
+                  <div class="pointer-events-none absolute inset-0">
+                    <div
+                      v-for="lead in pageLeads"
+                      :key="lead._id"
+                      class="absolute border-2 transition-colors"
+                      :class="
+                        lead._id === selectedLeadId
+                          ? 'border-emerald-500 bg-emerald-300/20'
+                          : 'border-sky-500 bg-sky-300/10'
+                      "
+                      :style="overlayStyle(lead.bbox)"
+                    />
+                    <div
+                      v-for="overlay in selectedLeadEnrichmentOverlays"
+                      :key="overlay.key"
+                      class="absolute border-2 border-dashed transition-colors"
+                      :class="
+                        overlay.kind === 'header'
+                          ? 'border-amber-500 bg-amber-200/20'
+                          : overlay.kind === 'person'
+                            ? 'border-fuchsia-500 bg-fuchsia-200/20'
+                            : 'border-cyan-500 bg-cyan-200/20'
+                      "
+                      :style="overlayStyle(overlay.bbox)"
+                    >
+                      <span
+                        class="absolute -top-5 left-0 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                      >
+                        {{ overlay.label }}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -311,7 +527,10 @@ function overlayStyle(bbox: number[]) {
         <aside
           class="min-h-0 rounded-2xl border border-border/70 bg-card/90 p-3 shadow-sm"
         >
-          <div class="h-full min-h-0 space-y-3 overflow-y-auto pr-1">
+          <div
+            ref="leadSidebarScrollContainer"
+            class="h-full min-h-0 space-y-3 overflow-y-auto pr-1"
+          >
             <div
               v-if="pagesWithLeads.length === 0"
               class="text-muted-foreground rounded-lg border border-dashed border-border px-3 py-8 text-center text-sm"
@@ -322,6 +541,7 @@ function overlayStyle(bbox: number[]) {
             <section
               v-for="pageEntry in pagesWithLeads"
               :key="pageEntry.pageNumber"
+              :ref="(element) => setLeadPageSectionRef(pageEntry.pageNumber, element)"
               class="rounded-xl border border-border/70 bg-background/80 p-3 space-y-2"
             >
               <div class="flex items-center gap-2">
@@ -379,22 +599,27 @@ function overlayStyle(bbox: number[]) {
                   <p class="text-muted-foreground mt-1 text-xs">
                     Enrichment: {{ lead.enrichment?.status || "PENDING" }}
                   </p>
+                  <p class="text-muted-foreground mt-1 text-xs">
+                    Header bbox: {{ bboxLabel(lead.enrichment?.articleHeaderBbox) }}
+                  </p>
 
                   <div class="mt-2 space-y-1 text-xs">
                     <p>
                       <span class="text-muted-foreground">Persons:</span>
                       {{
-                        lead.enrichment?.personNames?.length
-                          ? lead.enrichment.personNames.join(", ")
-                          : "-"
+                        formatNamesWithBboxes(
+                          lead.enrichment?.personNames,
+                          lead.enrichment?.personNameBoxes,
+                        )
                       }}
                     </p>
                     <p>
                       <span class="text-muted-foreground">Companies:</span>
                       {{
-                        lead.enrichment?.companyNames?.length
-                          ? lead.enrichment.companyNames.join(", ")
-                          : "-"
+                        formatNamesWithBboxes(
+                          lead.enrichment?.companyNames,
+                          lead.enrichment?.companyNameBoxes,
+                        )
                       }}
                     </p>
                   </div>
