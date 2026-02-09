@@ -10,6 +10,8 @@ const permissionContextQuery = useConvexQuery(
   {},
 );
 const permissionContext = computed(() => permissionContextQuery.data.value);
+const userQuery = useConvexQuery(api.users.getOwnUser, {});
+const user = computed(() => userQuery.data.value);
 const colorMode = useColorMode();
 const route = useRoute();
 
@@ -83,14 +85,15 @@ async function signOut() {
             v-else-if="isAuthenticated"
             class="text-muted-foreground hidden rounded-md bg-muted/40 px-2.5 py-1 text-sm md:block"
           >
-            Logged in
-            {{ permissionContext?.role ? ` as ${permissionContext.role}` : "" }}
+            Logged in: {{ user?.displayName ?? "Unknown" }}
           </p>
 
           <button
             type="button"
             class="border-input hover:bg-muted inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors"
-            :aria-label="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+            :aria-label="
+              isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'
+            "
             :title="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
             @click="toggleColorMode"
           >

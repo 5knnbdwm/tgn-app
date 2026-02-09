@@ -1,12 +1,19 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { authorize } from "./lib/permissions";
+import { authorize, getUser } from "./lib/permissions";
 
 const roleValidator = v.union(
   v.literal("admin"),
   v.literal("member"),
   v.literal("viewer"),
 );
+
+export const getOwnUser = query({
+  handler: async (ctx, _args) => {
+    await authorize(ctx, "user.read");
+    return getUser(ctx);
+  },
+});
 
 export const listUsers = query({
   handler: async (ctx) => {
