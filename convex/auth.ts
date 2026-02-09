@@ -21,12 +21,28 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
   triggers: {
     user: {
       onCreate: async (ctx, doc) => {
+        const existingUser = await ctx.db.query("users").first();
+        if (existingUser) {
+          const identity = await ctx.auth.getUserIdentity();
+          if (!identity) {
+            throw new Error("Only admins can create users");
+          }
+
+          const actor = await ctx.db
+            .query("users")
+            .withIndex("by_auth_id", (q) => q.eq("authId", identity.subject))
+            .first();
+          if (!actor || actor.role !== "admin") {
+            throw new Error("Only admins can create users");
+          }
+        }
+
         const now = Date.now();
         await ctx.db.insert("users", {
           authId: doc._id,
           displayName: doc.name,
           email: doc.email,
-          role: "member",
+          role: existingUser ? "member" : "admin",
           createdAt: now,
           updatedAt: now,
         });
