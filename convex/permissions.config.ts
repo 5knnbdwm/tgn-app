@@ -2,14 +2,28 @@
 export const ROLES = ["admin", "member", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
+type RoleRule = {
+  roles: readonly Role[];
+};
+
+type OwnershipRule = {
+  own?: readonly Role[];
+  any?: readonly Role[];
+};
+
+type PermissionRule = RoleRule | OwnershipRule;
+
 // Permission rules
 export const permissions = {
-  "task.create": { roles: ["admin", "member"] },
-  "task.read": { roles: ["admin", "member", "viewer"] },
-  "task.update": { own: ["member"], any: ["admin"] },
-  "task.delete": { own: ["member"], any: ["admin"] },
-  "settings.view": { roles: ["admin"] },
-} as const;
+  "publication.read": { roles: ["admin", "member", "viewer"] },
+  "publication.create": { roles: ["admin", "member"] },
+  "publication.retry": { roles: ["admin", "member"] },
+  "lead.manual.create": { roles: ["admin", "member"] },
+  "user.read": { roles: ["admin"] },
+  "user.create": { roles: ["admin"] },
+  "user.role.update": { roles: ["admin"] },
+  "system.settings.view": { roles: ["admin"] },
+} as const satisfies Record<string, PermissionRule>;
 
 export type Permission = keyof typeof permissions;
 
@@ -21,7 +35,7 @@ export function checkPermission(
 ): boolean {
   if (!userRole) return false;
 
-  const rule = permissions[permission];
+  const rule = permissions[permission] as PermissionRule;
 
   if ("roles" in rule) {
     return (rule.roles as readonly string[]).includes(userRole);

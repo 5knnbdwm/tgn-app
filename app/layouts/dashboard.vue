@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useAuthClient } from "#imports";
 import { api } from "~~/convex/_generated/api";
 
 const authClient = useAuthClient();
@@ -51,6 +52,14 @@ async function signOut() {
             Logged in
             {{ permissionContext?.role ? ` as ${permissionContext.role}` : "" }}
           </p>
+
+          <NuxtLink
+            v-if="permissionContext?.role === 'admin'"
+            to="/admin/users"
+            class="border-input hover:bg-muted inline-flex h-9 items-center rounded-md border px-3 text-sm"
+          >
+            Users
+          </NuxtLink>
 
           <button
             type="button"

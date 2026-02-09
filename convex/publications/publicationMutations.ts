@@ -7,6 +7,7 @@ import {
   type SourceType,
 } from "../model";
 import { internal } from "../_generated/api";
+import { authorize } from "../lib/permissions";
 
 function derivePublicationName(fileName: string) {
   return fileName.replace(/\.[^/.]+$/, "").trim();
@@ -18,6 +19,8 @@ export const createPublicationUpload = mutation({
     fileName: v.string(),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.create");
+
     const fileMeta = await ctx.db.system.get("_storage", args.fileStorageId);
     if (!fileMeta) {
       throw new Error("File not found");
@@ -61,6 +64,8 @@ export const createMissedLead = mutation({
     bbox: v.array(v.number()),
   },
   handler: async (ctx, args) => {
+    const user = await authorize(ctx, "lead.manual.create");
+
     const publication = await ctx.db.get(args.publicationId);
     if (!publication) {
       throw new Error("Publication not found");
@@ -80,19 +85,6 @@ export const createMissedLead = mutation({
       y2 <= y1
     ) {
       throw new Error("Invalid bbox");
-    }
-
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Authentication required");
-    }
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_auth_id", (q) => q.eq("authId", identity.subject))
-      .first();
-    if (!user) {
-      throw new Error("Authenticated user not found");
     }
 
     const ts = nowTs();
@@ -367,6 +359,8 @@ export const retryPublicationProcessing = mutation({
     publicationId: v.id("publications"),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.retry");
+
     const publication = await ctx.db.get(args.publicationId);
     if (!publication) {
       throw new Error("Publication not found");

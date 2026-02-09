@@ -5,6 +5,7 @@ import {
 } from "@convex-dev/better-auth";
 import { convex } from "@convex-dev/better-auth/plugins";
 import { APIError, betterAuth } from "better-auth";
+import { admin } from "better-auth/plugins";
 import { v } from "convex/values";
 import { internalQuery, query } from "./_generated/server";
 
@@ -73,11 +74,18 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     databaseHooks: {
       user: {
         create: {
-          before: async (_user, authCtx) => {
+          before: async (user, authCtx) => {
             const existingUser = await ctx.runQuery(
               internal.auth.hasAnyUserForSignUpGate,
             );
-            if (!existingUser) return;
+            if (!existingUser) {
+              return {
+                data: {
+                  ...user,
+                  role: "admin",
+                },
+              };
+            }
 
             const actorAuthId = authCtx?.context.session?.user?.id;
             if (!actorAuthId) {
@@ -95,11 +103,18 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
                 message: "Only admins can create users",
               });
             }
+
+            return {
+              data: {
+                ...user,
+                role: user.role === "admin" ? "admin" : "user",
+              },
+            };
           },
         },
       },
     },
-    plugins: [convex({ authConfig })],
+    plugins: [convex({ authConfig }), admin()],
     session: {
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,

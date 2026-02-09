@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
 import { paginationOptsValidator } from "convex/server";
 import { publicationStatusValidator, sourceTypeValidator } from "../model";
+import { authorize } from "../lib/permissions";
 
 export const listPublications = query({
   args: {
@@ -12,6 +13,8 @@ export const listPublications = query({
     search: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
+
     return await ctx.db
       .query("publications")
       .order("desc")
@@ -34,6 +37,7 @@ export const getPublication = query({
     id: v.id("publications"),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
     return await ctx.db.get(args.id);
   },
 });
@@ -44,6 +48,8 @@ export const getPage = query({
     pageNumber: v.number(),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
+
     const page = await ctx.db
       .query("publicationPages")
       .withIndex("by_publicationId_pageNumber", (q) =>
@@ -74,6 +80,8 @@ export const getEditorSidebar = query({
     publicationId: v.id("publications"),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
+
     const publication = await ctx.db.get(args.publicationId);
     if (!publication) return null;
 
@@ -121,6 +129,8 @@ export const getPagesForPublication = query({
     publicationId: v.id("publications"),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
+
     return await ctx.db
       .query("publicationPages")
       .withIndex("by_publicationId", (q) =>
@@ -136,6 +146,8 @@ export const getPageOcr = query({
     pageNumber: v.number(),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
+
     return ctx.db
       .query("pageOcr")
       .withIndex("by_publicationId_pageNumber", (q) =>
@@ -152,6 +164,8 @@ export const getLeadEnrichment = query({
     leadId: v.id("leads"),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
+
     return ctx.db
       .query("leadEnrichments")
       .withIndex("by_leadId", (q) => q.eq("leadId", args.leadId))
@@ -165,6 +179,8 @@ export const getLeadEnrichmentsForPage = query({
     pageNumber: v.number(),
   },
   handler: async (ctx, args) => {
+    await authorize(ctx, "publication.read");
+
     const leads = await ctx.db
       .query("leads")
       .withIndex("by_publicationId_pageNumber", (q) =>
