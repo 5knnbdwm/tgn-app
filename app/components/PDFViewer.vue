@@ -52,8 +52,9 @@ type NormalizedPointWithSize = NormalizedPoint & {
   height: number;
 };
 
-const pageImageScrollContainer =
-  useTemplateRef<HTMLDivElement>("pageImageScrollContainer");
+const pageImageScrollContainer = useTemplateRef<HTMLDivElement>(
+  "pageImageScrollContainer",
+);
 const pageOverlayRef = useTemplateRef<HTMLDivElement>("pageOverlayRef");
 const isDraggingImage = ref(false);
 const imageDragStart = ref<{
@@ -568,13 +569,13 @@ watch(
       <div v-else class="flex w-full items-start" :style="zoomSurfaceStyle">
         <div class="shrink-0" :style="{ width: `${ZOOM_GUTTER_PX}px` }" />
         <div
-          class="relative box-border shrink-0 border border-border bg-white shadow-inner"
+          class="relative box-border shrink-0 border border-border bg-background shadow-inner"
           :style="zoomFrameStyle"
         >
           <img
             :src="props.currentPageData.pageImageUrl"
             :alt="`Publication page ${props.currentPage}`"
-            class="block h-auto w-full object-contain select-none"
+            class="block h-auto w-full object-contain select-none dark:brightness-50"
             draggable="false"
           />
           <div class="absolute inset-0">

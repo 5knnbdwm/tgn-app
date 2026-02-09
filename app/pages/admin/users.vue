@@ -21,7 +21,10 @@ type AppRole = "admin" | "member" | "viewer";
 
 usePermissionGuard({ permission: "user.read", redirectTo: "/" });
 
-const permissionContextQuery = useConvexQuery(api.auth.getPermissionContext, {});
+const permissionContextQuery = useConvexQuery(
+  api.auth.getPermissionContext,
+  {},
+);
 const permissionContext = computed(() => permissionContextQuery.data.value);
 
 const usersQuery = useConvexQuery(api.users.listUsers, {});
@@ -125,11 +128,7 @@ async function updateRole(userId: Id<"users">, authId: string, role: AppRole) {
   }
 }
 
-function handleRoleSelect(
-  userId: Id<"users">,
-  authId: string,
-  event: Event,
-) {
+function handleRoleSelect(userId: Id<"users">, authId: string, event: Event) {
   const nextRole = (event.target as HTMLSelectElement).value as AppRole;
   void updateRole(userId, authId, nextRole);
 }
@@ -137,11 +136,11 @@ function handleRoleSelect(
 
 <template>
   <main
-    class="min-h-dvh bg-[radial-gradient(circle_at_0%_0%,rgba(15,23,42,0.08),transparent_38%),radial-gradient(circle_at_95%_10%,rgba(180,83,9,0.14),transparent_36%),linear-gradient(180deg,#f8fafc_0%,#f7f1e7_100%)] px-4 py-6 sm:px-6 lg:px-8"
+    class="min-h-dvh bg-[radial-gradient(circle_at_0%_0%,rgba(15,23,42,0.08),transparent_38%),radial-gradient(circle_at_95%_10%,rgba(180,83,9,0.14),transparent_36%),linear-gradient(180deg,#f8fafc_0%,#f7f1e7_100%)] px-4 py-6 dark:bg-[radial-gradient(circle_at_0%_0%,rgba(56,189,248,0.14),transparent_42%),radial-gradient(circle_at_95%_10%,rgba(245,158,11,0.12),transparent_40%),linear-gradient(180deg,rgba(9,13,20,0.98)_0%,rgba(7,10,16,0.98)_100%)] sm:px-6 lg:px-8"
   >
-    <div class="mx-auto max-w-6xl space-y-6">
+    <div class="mx-auto container space-y-6">
       <header
-        class="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm backdrop-blur"
+        class="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm backdrop-blur dark:border-border/80 dark:bg-card/95"
       >
         <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">
           User Management
@@ -151,7 +150,9 @@ function handleRoleSelect(
         </p>
       </header>
 
-      <section class="grid gap-5 rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm">
+      <section
+        class="grid gap-5 rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm dark:border-border/80 dark:bg-card/95"
+      >
         <h2 class="text-lg font-semibold">Create User</h2>
         <form class="grid gap-3 md:grid-cols-2" @submit.prevent="createUser">
           <div class="grid gap-2">
@@ -194,7 +195,7 @@ function handleRoleSelect(
             <select
               id="role"
               v-model="form.role"
-              class="border-input bg-background ring-offset-background focus-visible:ring-ring inline-flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
+              class="border-input bg-background ring-offset-background focus-visible:ring-ring inline-flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none dark:bg-input/45"
             >
               <option value="admin">admin</option>
               <option value="member">member</option>
@@ -206,25 +207,28 @@ function handleRoleSelect(
             <Button type="submit" :disabled="creating">
               {{ creating ? "Creating..." : "Create User" }}
             </Button>
-            <p v-if="createSuccess" class="text-sm text-emerald-700">
+            <p v-if="createSuccess" class="text-sm text-emerald-700 dark:text-emerald-300">
               {{ createSuccess }}
             </p>
-            <p v-if="createError" class="text-sm text-red-700">
+            <p v-if="createError" class="text-sm text-red-700 dark:text-red-300">
               {{ createError }}
             </p>
           </div>
         </form>
       </section>
 
-      <section class="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm">
+      <section
+        class="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm dark:border-border/80 dark:bg-card/95"
+      >
         <div class="mb-3 flex items-center justify-between gap-3">
           <h2 class="text-lg font-semibold">Users</h2>
-          <Badge variant="secondary">
-            {{ users.length }} total
-          </Badge>
+          <Badge variant="secondary"> {{ users.length }} total </Badge>
         </div>
 
-        <p v-if="rowError" class="mb-3 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700">
+        <p
+          v-if="rowError"
+          class="mb-3 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-950/35 dark:text-red-200"
+        >
           {{ rowError }}
         </p>
 
@@ -239,7 +243,9 @@ function handleRoleSelect(
           </TableHeader>
           <TableBody>
             <TableEmpty v-if="loadingUsers">Loading users...</TableEmpty>
-            <TableEmpty v-else-if="users.length === 0">No users found.</TableEmpty>
+            <TableEmpty v-else-if="users.length === 0"
+              >No users found.</TableEmpty
+            >
             <TableRow v-for="user in users" v-else :key="user._id">
               <TableCell class="font-medium">
                 {{ user.displayName ?? "—" }}
@@ -250,18 +256,14 @@ function handleRoleSelect(
               <TableCell>
                 <select
                   :value="user.role"
-                  class="border-input bg-background ring-offset-background focus-visible:ring-ring inline-flex h-9 rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                  class="border-input bg-background ring-offset-background focus-visible:ring-ring inline-flex h-9 rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:outline-none dark:bg-input/45"
                   :disabled="
                     updatingUserId === user._id ||
                     user.authId === permissionContext?.userId
                   "
                   @change="handleRoleSelect(user._id, user.authId, $event)"
                 >
-                  <option
-                    v-for="role in roleOptions"
-                    :key="role"
-                    :value="role"
-                  >
+                  <option v-for="role in roleOptions" :key="role" :value="role">
                     {{ role }}
                   </option>
                 </select>

@@ -330,7 +330,7 @@ watch(
 
 <template>
   <main
-    class="h-[calc(100dvh-3.5rem-1px)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
+    class="h-[calc(100dvh-3.5rem-1px)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 dark:bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.15),transparent_50%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.12),transparent_48%),linear-gradient(180deg,rgba(10,15,23,0.96)_0%,rgba(8,11,17,0.96)_100%)] sm:px-6 lg:px-8"
   >
     <div class="mx-auto flex h-full container flex-col gap-4">
       <header
@@ -384,17 +384,17 @@ watch(
 
           <div class="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
             <section
-              class="rounded-xl border border-sky-200/70 bg-gradient-to-r from-sky-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+              class="rounded-xl border border-sky-200/70 bg-gradient-to-r from-sky-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:border-sky-900/70 dark:from-sky-950/55 dark:shadow-[inset_0_1px_0_rgba(56,189,248,0.12)]"
             >
               <p
-                class="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-700"
+                class="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-700 dark:text-sky-300"
               >
                 Page Navigation
               </p>
               <ButtonGroup class="mt-1 w-full">
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50"
+                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50 dark:border-sky-900/80 dark:bg-sky-950/65 dark:text-sky-100 dark:hover:bg-sky-900/60"
                   :disabled="!previousPage"
                   @click="previousPage && setPage(previousPage)"
                 >
@@ -402,13 +402,13 @@ watch(
                     <ChevronLeft class="size-3.5" />
                     Prev Page
                   </span>
-                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px]">
+                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px] dark:bg-sky-900/80 dark:text-sky-100">
                     {{ previousPage ?? "-" }}
                   </span>
                 </Button>
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50"
+                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50 dark:border-sky-900/80 dark:bg-sky-950/65 dark:text-sky-100 dark:hover:bg-sky-900/60"
                   :disabled="!nextPage"
                   @click="nextPage && setPage(nextPage)"
                 >
@@ -416,7 +416,7 @@ watch(
                     Next Page
                     <ChevronRight class="size-3.5" />
                   </span>
-                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px]">
+                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px] dark:bg-sky-900/80 dark:text-sky-100">
                     {{ nextPage ?? "-" }}
                   </span>
                 </Button>
@@ -424,17 +424,17 @@ watch(
             </section>
 
             <section
-              class="rounded-xl border border-emerald-200/70 bg-gradient-to-r from-emerald-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+              class="rounded-xl border border-emerald-200/70 bg-gradient-to-r from-emerald-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:border-emerald-900/70 dark:from-emerald-950/55 dark:shadow-[inset_0_1px_0_rgba(16,185,129,0.12)]"
             >
               <p
-                class="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700"
+                class="px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:text-emerald-300"
               >
                 Lead Navigation
               </p>
               <ButtonGroup class="mt-1 w-full">
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50"
+                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-900/80 dark:bg-emerald-950/65 dark:text-emerald-100 dark:hover:bg-emerald-900/60"
                   :disabled="!previousLeadPage"
                   @click="previousLeadPage && setPage(previousLeadPage)"
                 >
@@ -442,13 +442,13 @@ watch(
                     <ChevronLeft class="size-3.5" />
                     Prev Lead
                   </span>
-                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px]">
+                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px] dark:bg-emerald-900/80 dark:text-emerald-100">
                     {{ previousLeadPage ?? "-" }}
                   </span>
                 </Button>
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50"
+                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-900/80 dark:bg-emerald-950/65 dark:text-emerald-100 dark:hover:bg-emerald-900/60"
                   :disabled="!nextLeadPage"
                   @click="nextLeadPage && setPage(nextLeadPage)"
                 >
@@ -456,7 +456,7 @@ watch(
                     Next Lead
                     <ChevronRight class="size-3.5" />
                   </span>
-                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px]">
+                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px] dark:bg-emerald-900/80 dark:text-emerald-100">
                     {{ nextLeadPage ?? "-" }}
                   </span>
                 </Button>
