@@ -7,8 +7,6 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-vue-next";
 
 definePageMeta({ middleware: "auth", layout: "dashboard" });
@@ -47,10 +45,6 @@ const expandedPageNumber = ref<number | null>(null);
 const retryingProcessing = ref(false);
 const leadSidebarScrollContainer = ref<HTMLElement | null>(null);
 const leadPageSectionRefs = ref<Record<number, HTMLElement | null>>({});
-const MIN_ZOOM = 100;
-const MAX_ZOOM = 300;
-const ZOOM_STEP = 25;
-const zoomPercent = ref(100);
 const sidebar = computed(() => sidebarData.data.value);
 const currentPageData = computed(() => pageData.data.value);
 const publicationStatus = computed(() => sidebar.value?.publication.status);
@@ -157,26 +151,9 @@ function confidenceLabel(score: number) {
   return `${Math.round(score)}% confidence`;
 }
 
-type NameBox = {
-  name: string;
-  bbox: number[];
-};
-
 function formatNames(names?: string[]) {
   if (!names?.length) return "-";
   return names.join(", ");
-}
-
-function zoomIn() {
-  zoomPercent.value = Math.min(MAX_ZOOM, zoomPercent.value + ZOOM_STEP);
-}
-
-function zoomOut() {
-  zoomPercent.value = Math.max(MIN_ZOOM, zoomPercent.value - ZOOM_STEP);
-}
-
-function resetZoom() {
-  zoomPercent.value = 100;
 }
 
 function togglePageExpansion(pageNumber: number) {
@@ -202,172 +179,12 @@ function scrollLeadPageIntoView(pageNumber: number) {
   }
 }
 
-const selectedLead = computed(
-  () => pageLeads.value.find((lead) => lead._id === selectedLeadId.value) ?? null,
-);
-
-const selectedLeadEnrichmentOverlays = computed(() => {
-  const enrichment = selectedLead.value?.enrichment;
-  if (!enrichment) return [];
-
-  const overlays: Array<{
-    key: string;
-    kind: "header" | "person" | "company";
-    label: string;
-    bbox: number[];
-    labelLane: number;
-    labelBelow: boolean;
-  }> = [];
-
-  if (enrichment.articleHeaderBbox?.length === 4) {
-    overlays.push({
-      key: "header",
-      kind: "header",
-      label: "Header",
-      bbox: enrichment.articleHeaderBbox,
-      labelLane: 0,
-      labelBelow: false,
-    });
-  }
-
-  (enrichment.personNameBoxes ?? []).forEach((entry: NameBox, index: number) => {
-    if (entry.bbox?.length === 4) {
-      overlays.push({
-        key: `person-${entry.name}-${index}`,
-        kind: "person",
-        label: `Person: ${entry.name}`,
-        bbox: entry.bbox,
-        labelLane: 0,
-        labelBelow: false,
-      });
-    }
-  });
-
-  (enrichment.companyNameBoxes ?? []).forEach(
-    (entry: NameBox, index: number) => {
-      if (entry.bbox?.length === 4) {
-        overlays.push({
-          key: `company-${entry.name}-${index}`,
-          kind: "company",
-          label: `Company: ${entry.name}`,
-          bbox: entry.bbox,
-          labelLane: 0,
-          labelBelow: false,
-        });
-      }
-    },
-  );
-
-  const labelHeight = 18;
-  const labelGap = 4;
-  const laneStep = labelHeight + 2;
-  const positioned: Array<{
-    key: string;
-    kind: "header" | "person" | "company";
-    label: string;
-    bbox: number[];
-    labelLane: number;
-    labelBelow: boolean;
-    x1: number;
-    x2: number;
-    y: number;
-  }> = [];
-  const sortedOverlays = overlays
-    .slice()
-    .sort((left, right) => left.bbox[1] - right.bbox[1] || left.bbox[0] - right.bbox[0]);
-
-  for (const overlay of sortedOverlays) {
-    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = overlay.bbox;
-    const labelWidth = Math.max(70, Math.min(240, overlay.label.length * 7 + 18));
-    const labelX1 = x1;
-    const labelX2 = x1 + labelWidth;
-
-    let lane = 0;
-    let placeBelow = false;
-    let labelY = y1 - (labelHeight + labelGap);
-    while (lane < 8) {
-      labelY = y1 - (labelHeight + labelGap + lane * laneStep);
-      if (labelY < 0) {
-        placeBelow = true;
-        lane = 0;
-        break;
-      }
-      const collides = positioned.some(
-        (placed) =>
-          !placed.labelBelow &&
-          Math.abs(placed.y - labelY) < labelHeight &&
-          Math.max(placed.x1, labelX1) < Math.min(placed.x2, labelX2),
-      );
-      if (!collides) break;
-      lane += 1;
-    }
-
-    if (placeBelow) {
-      while (lane < 8) {
-        labelY = y2 + labelGap + lane * laneStep;
-        const collides = positioned.some(
-          (placed) =>
-            placed.labelBelow &&
-            Math.abs(placed.y - labelY) < labelHeight &&
-            Math.max(placed.x1, labelX1) < Math.min(placed.x2, labelX2),
-        );
-        if (!collides) break;
-        lane += 1;
-      }
-    }
-
-    positioned.push({
-      ...overlay,
-      labelLane: lane,
-      labelBelow: placeBelow,
-      x1: labelX1,
-      x2: labelX2,
-      y: labelY,
-    });
-  }
-
-  return positioned;
-});
-
-function overlayStyle(bbox: number[]) {
-  const page = currentPageData.value?.page;
-  if (!page || bbox.length !== 4) return {};
-
-  const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = bbox;
-  const left = (x1 / page.pageWidth) * 100;
-  const top = (y1 / page.pageHeight) * 100;
-  const width = ((x2 - x1) / page.pageWidth) * 100;
-  const height = ((y2 - y1) / page.pageHeight) * 100;
-
-  return {
-    left: `${Math.max(0, left)}%`,
-    top: `${Math.max(0, top)}%`,
-    width: `${Math.max(0, width)}%`,
-    height: `${Math.max(0, height)}%`,
-  };
-}
-
-function overlayLabelStyle(overlay: { labelLane: number; labelBelow: boolean }) {
-  const labelHeight = 18;
-  const labelGap = 4;
-  const laneStep = labelHeight + 2;
-  const offset = labelGap + overlay.labelLane * laneStep;
-  if (overlay.labelBelow) {
-    return {
-      left: "0px",
-      top: `calc(100% + ${offset}px)`,
-    };
-  }
-  return {
-    left: "0px",
-    top: `-${labelHeight + offset}px`,
-  };
-}
-
 watch(
   currentPage,
   async (pageNumber) => {
-    if (!pagesWithLeads.value.some((entry) => entry.pageNumber === pageNumber)) {
+    if (
+      !pagesWithLeads.value.some((entry) => entry.pageNumber === pageNumber)
+    ) {
       return;
     }
     await nextTick();
@@ -375,11 +192,12 @@ watch(
   },
   { flush: "post" },
 );
+
 </script>
 
 <template>
   <main
-    class="h-[calc(100dvh-3.5rem)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
+    class="box-border h-[calc(100dvh-3.5rem)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
   >
     <div
       class="mx-auto flex h-full w-full max-w-[1500px] flex-col gap-4 overflow-hidden"
@@ -520,99 +338,19 @@ watch(
       <section
         class="min-h-0 flex-1 grid gap-4 overflow-hidden xl:grid-cols-[minmax(0,1fr)_430px]"
       >
-        <article
-          class="min-h-0 rounded-2xl border border-border/70 bg-card/90 p-3 shadow-sm"
-        >
-          <div
-            class="h-full overflow-auto rounded-xl border border-border/70 bg-muted/20 p-3"
-          >
-            <div class="mx-auto max-w-[900px]">
-              <div class="mb-3 flex items-center justify-end gap-2">
-                <Button
-                  size="icon-xs"
-                  variant="outline"
-                  :disabled="zoomPercent <= MIN_ZOOM"
-                  aria-label="Zoom out"
-                  @click="zoomOut"
-                >
-                  <ZoomOut class="size-4" />
-                </Button>
-                <Button size="xs" variant="outline" @click="resetZoom">
-                  {{ zoomPercent }}%
-                </Button>
-                <Button
-                  size="icon-xs"
-                  variant="outline"
-                  :disabled="zoomPercent >= MAX_ZOOM"
-                  aria-label="Zoom in"
-                  @click="zoomIn"
-                >
-                  <ZoomIn class="size-4" />
-                </Button>
-              </div>
-
-              <div
-                v-if="!currentPageData?.pageImageUrl"
-                class="text-muted-foreground flex min-h-[560px] items-center justify-center rounded-lg border border-dashed border-border text-sm"
-              >
-                Page image unavailable.
-              </div>
-
-              <div
-                v-else
-                class="overflow-auto rounded-lg border border-border bg-white shadow-inner"
-              >
-                <div class="relative min-w-full" :style="{ width: `${zoomPercent}%` }">
-                  <img
-                    :src="currentPageData.pageImageUrl"
-                    :alt="`Publication page ${currentPage}`"
-                    class="h-auto w-full object-contain select-none"
-                  />
-                  <div class="pointer-events-none absolute inset-0">
-                    <div
-                      v-for="lead in pageLeads"
-                      :key="lead._id"
-                      class="absolute border-2 transition-colors"
-                      :class="
-                        lead._id === selectedLeadId
-                          ? 'border-emerald-500 bg-emerald-300/20'
-                          : 'border-sky-500 bg-sky-300/10'
-                      "
-                      :style="overlayStyle(lead.bbox)"
-                    />
-                    <div
-                      v-for="overlay in selectedLeadEnrichmentOverlays"
-                      :key="overlay.key"
-                      class="absolute border-2 border-dashed transition-colors"
-                      :class="
-                        overlay.kind === 'header'
-                          ? 'border-amber-500 bg-amber-200/20'
-                          : overlay.kind === 'person'
-                            ? 'border-fuchsia-500 bg-fuchsia-200/20'
-                            : 'border-cyan-500 bg-cyan-200/20'
-                      "
-                      :style="overlayStyle(overlay.bbox)"
-                    >
-                      <span
-                        class="absolute left-0 max-w-[240px] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"
-                        :style="overlayLabelStyle(overlay)"
-                      >
-                        {{ overlay.label }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
+        <PDFViewer
+          :current-page-data="currentPageData"
+          :current-page="currentPage"
+          :page-leads="pageLeads"
+          :selected-lead-id="selectedLeadId"
+        />
 
         <aside
           class="min-h-0 rounded-2xl border border-border/70 bg-card/90 p-3 shadow-sm"
         >
           <div
             ref="leadSidebarScrollContainer"
-            class="h-full min-h-0 space-y-3 overflow-y-auto pr-1"
+            class="h-full min-h-0 space-y-3 overflow-y-auto overflow-x-hidden pr-1"
           >
             <div
               v-if="pagesWithLeads.length === 0"
@@ -624,7 +362,10 @@ watch(
             <section
               v-for="pageEntry in pagesWithLeads"
               :key="pageEntry.pageNumber"
-              :ref="(element) => setLeadPageSectionRef(pageEntry.pageNumber, element)"
+              :ref="
+                (element) =>
+                  setLeadPageSectionRef(pageEntry.pageNumber, element)
+              "
               class="rounded-xl border border-border/70 bg-background/80 p-3 space-y-2"
             >
               <div class="flex items-center gap-2">
@@ -685,15 +426,11 @@ watch(
                   <div class="mt-2 space-y-1 text-xs">
                     <p>
                       <span class="text-muted-foreground">Persons:</span>
-                      {{
-                        formatNames(lead.enrichment?.personNames)
-                      }}
+                      {{ formatNames(lead.enrichment?.personNames) }}
                     </p>
                     <p>
                       <span class="text-muted-foreground">Companies:</span>
-                      {{
-                        formatNames(lead.enrichment?.companyNames)
-                      }}
+                      {{ formatNames(lead.enrichment?.companyNames) }}
                     </p>
                   </div>
                 </article>
