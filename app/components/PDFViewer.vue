@@ -72,7 +72,8 @@ const fitHeightZoom = computed(() => {
     1,
     viewportInnerWidth.value - ZOOM_GUTTER_PX * 2,
   );
-  const frameHeightAtHundred = frameWidthAtHundred * (page.pageHeight / page.pageWidth);
+  const frameHeightAtHundred =
+    frameWidthAtHundred * (page.pageHeight / page.pageWidth);
   if (frameHeightAtHundred <= 0) return 100;
 
   const rawFit = (viewportInnerHeight.value / frameHeightAtHundred) * 100;
@@ -487,7 +488,7 @@ watch(
     class="relative min-h-0 rounded-2xl border border-border/70 bg-card/90 p-3 shadow-sm"
   >
     <div
-      class="absolute top-5 right-5 z-20 flex items-center gap-2 rounded-lg border border-border/80 bg-background/95 p-1.5 shadow-sm backdrop-blur"
+      class="absolute top-5 right-5 z-20 flex items-center gap-2 rounded-lg border border-border/80 bg-background/80 p-1.5 shadow-sm backdrop-blur"
     >
       <Button
         size="icon-xs"
@@ -514,7 +515,7 @@ watch(
 
     <div
       ref="pageImageScrollContainer"
-      class="h-full overflow-auto rounded-xl border border-border/70 bg-muted/20 p-3 pt-14"
+      class="h-full overflow-auto rounded-xl border border-border/70 bg-muted/20 p-3 pt-3"
       :class="
         props.drawModeEnabled
           ? 'cursor-default'
@@ -532,10 +533,7 @@ watch(
       </div>
 
       <div v-else class="flex w-full items-start" :style="zoomSurfaceStyle">
-        <div
-          class="shrink-0"
-          :style="{ width: `${ZOOM_GUTTER_PX}px` }"
-        />
+        <div class="shrink-0" :style="{ width: `${ZOOM_GUTTER_PX}px` }" />
         <div
           class="relative box-border shrink-0 border border-border bg-white shadow-inner"
           :style="zoomFrameStyle"
@@ -582,7 +580,11 @@ watch(
           <div
             ref="pageOverlayRef"
             class="absolute inset-0 z-10"
-            :class="props.drawModeEnabled ? 'pointer-events-auto cursor-crosshair' : 'pointer-events-none'"
+            :class="
+              props.drawModeEnabled
+                ? 'pointer-events-auto cursor-crosshair'
+                : 'pointer-events-none'
+            "
             @mousedown.stop="onDrawStart"
           >
             <div
@@ -598,10 +600,7 @@ watch(
             />
           </div>
         </div>
-        <div
-          class="shrink-0"
-          :style="{ width: `${ZOOM_GUTTER_PX}px` }"
-        />
+        <div class="shrink-0" :style="{ width: `${ZOOM_GUTTER_PX}px` }" />
       </div>
     </div>
   </article>

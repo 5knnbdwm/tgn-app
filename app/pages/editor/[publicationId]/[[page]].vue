@@ -259,7 +259,7 @@ watch(
 
 <template>
   <main
-    class="box-border h-[calc(100dvh-3.5rem)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
+    class="box-border h-[calc(100dvh-3.5rem-1px)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
   >
     <div
       class="mx-auto flex h-full w-full max-w-[1500px] flex-col gap-4 overflow-hidden"
