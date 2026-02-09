@@ -4,8 +4,9 @@ import {
   type AuthFunctions,
 } from "@convex-dev/better-auth";
 import { convex } from "@convex-dev/better-auth/plugins";
-import { betterAuth } from "better-auth";
-import { query } from "./_generated/server";
+import { APIError, betterAuth } from "better-auth";
+import { v } from "convex/values";
+import { internalQuery, query } from "./_generated/server";
 
 import type { DataModel } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
@@ -22,21 +23,6 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
     user: {
       onCreate: async (ctx, doc) => {
         const existingUser = await ctx.db.query("users").first();
-        if (existingUser) {
-          const identity = await ctx.auth.getUserIdentity();
-          if (!identity) {
-            throw new Error("Only admins can create users");
-          }
-
-          const actor = await ctx.db
-            .query("users")
-            .withIndex("by_auth_id", (q) => q.eq("authId", identity.subject))
-            .first();
-          if (!actor || actor.role !== "admin") {
-            throw new Error("Only admins can create users");
-          }
-        }
-
         const now = Date.now();
         await ctx.db.insert("users", {
           authId: doc._id,
@@ -84,6 +70,35 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     baseURL: convexSiteUrl,
     database: authComponent.adapter(ctx),
     emailAndPassword: { enabled: true },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (_user, authCtx) => {
+            const existingUser = await ctx.runQuery(
+              internal.auth.hasAnyUserForSignUpGate,
+            );
+            if (!existingUser) return;
+
+            const actorAuthId = authCtx?.context.session?.user?.id;
+            if (!actorAuthId) {
+              throw new APIError("FORBIDDEN", {
+                message: "Only admins can create users",
+              });
+            }
+
+            const actorRole = await ctx.runQuery(
+              internal.auth.getUserRoleByAuthIdForSignUpGate,
+              { authId: actorAuthId },
+            );
+            if (actorRole !== "admin") {
+              throw new APIError("FORBIDDEN", {
+                message: "Only admins can create users",
+              });
+            }
+          },
+        },
+      },
+    },
     plugins: [convex({ authConfig })],
     session: {
       expiresIn: 60 * 60 * 24 * 7,
@@ -109,6 +124,26 @@ export const getPermissionContext = query({
       role: user.role,
       userId: user.authId,
     };
+  },
+});
+
+export const hasAnyUserForSignUpGate = internalQuery({
+  handler: async (ctx) => {
+    const existingUser = await ctx.db.query("users").first();
+    return !!existingUser;
+  },
+});
+
+export const getUserRoleByAuthIdForSignUpGate = internalQuery({
+  args: {
+    authId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_auth_id", (q) => q.eq("authId", args.authId))
+      .first();
+    return user?.role ?? null;
   },
 });
 
