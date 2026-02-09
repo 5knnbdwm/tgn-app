@@ -11,7 +11,11 @@ import {
   RefreshCw,
 } from "lucide-vue-next";
 
-definePageMeta({ middleware: "auth", layout: "dashboard" });
+definePageMeta({
+  middleware: "auth",
+  layout: "dashboard",
+  key: (route) => String(route.params.publicationId ?? ""),
+});
 
 const route = useRoute();
 const router = useRouter();
@@ -19,7 +23,13 @@ const router = useRouter();
 const publicationId = computed(
   () => route.params.publicationId as Id<"publications">,
 );
-const currentPage = computed(() => {
+const explicitPageParam = computed(() => {
+  const rawPageParam = Array.isArray(route.params.page)
+    ? route.params.page[0]
+    : route.params.page;
+  return rawPageParam != null && rawPageParam !== "";
+});
+const requestedPage = computed(() => {
   const rawPageParam = Array.isArray(route.params.page)
     ? route.params.page[0]
     : route.params.page;
@@ -32,13 +42,6 @@ const sidebarData = useConvexQuery(
   api.publications.publicationQueries.getEditorSidebar,
   computed(() => ({
     publicationId: publicationId.value,
-  })),
-);
-const pageData = useConvexQuery(
-  api.publications.publicationQueries.getPage,
-  computed(() => ({
-    publicationId: publicationId.value,
-    pageNumber: currentPage.value,
   })),
 );
 const { mutate: retryPublicationProcessing } = useConvexMutation(
@@ -61,6 +64,25 @@ const publicationStatus = computed(() => sidebar.value?.publication.status);
 const maxPage = computed(() => sidebar.value?.publication.pageCount ?? 1);
 const pageLeads = computed(() => currentPageData.value?.leads ?? []);
 const pagesWithLeads = computed(() => sidebar.value?.pagesWithLeads ?? []);
+const firstLeadPage = computed(() => {
+  const firstEntry = pagesWithLeads.value
+    .map((entry) => entry.pageNumber)
+    .sort((a, b) => a - b)[0];
+  return firstEntry ?? null;
+});
+const currentPage = computed(() => {
+  if (!explicitPageParam.value && firstLeadPage.value) {
+    return firstLeadPage.value;
+  }
+  return requestedPage.value;
+});
+const pageData = useConvexQuery(
+  api.publications.publicationQueries.getPage,
+  computed(() => ({
+    publicationId: publicationId.value,
+    pageNumber: currentPage.value,
+  })),
+);
 const sidebarPages = computed(() => {
   const pageEntries = pagesWithLeads.value;
   const byPageNumber = new Map<number, (typeof pageEntries)[number]>();
@@ -121,6 +143,18 @@ watch(
     if (currentValue > maxValue && maxValue > 0) {
       void setPage(maxValue);
     }
+  },
+  { immediate: true },
+);
+
+watch(
+  [explicitPageParam, firstLeadPage],
+  async ([hasExplicitPage, firstPage]) => {
+    if (hasExplicitPage || !firstPage) return;
+    await router.replace({
+      path: `/editor/${publicationId.value}/${firstPage}`,
+      query: route.query,
+    });
   },
   { immediate: true },
 );
@@ -214,9 +248,15 @@ function confidenceLabel(score: number) {
   return `${Math.round(score)}% conf.`;
 }
 
-function formatNames(names?: string[]) {
-  if (!names?.length) return "-";
-  return names.join(", ");
+async function copyLeadText(value?: string) {
+  const text = value?.trim();
+  if (!text) return;
+  if (!import.meta.client) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Ignore clipboard errors (e.g. insecure context); click stays non-breaking.
+  }
 }
 
 function togglePageExpansion(pageNumber: number) {
@@ -259,11 +299,9 @@ watch(
 
 <template>
   <main
-    class="box-border h-[calc(100dvh-3.5rem-1px)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
+    class="h-[calc(100dvh-3.5rem-1px)] overflow-hidden bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_45%),radial-gradient(circle_at_88%_82%,rgba(249,115,22,0.08),transparent_42%)] px-4 py-5 sm:px-6 lg:px-8"
   >
-    <div
-      class="mx-auto flex h-full w-full max-w-[1500px] flex-col gap-4 overflow-hidden"
-    >
+    <div class="mx-auto flex h-full container flex-col gap-4 overflow-hidden">
       <header
         class="rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm"
       >
@@ -527,25 +565,55 @@ watch(
                   </div>
 
                   <template v-if="lead.category === 'AI_LEAD'">
-                    <p class="mt-1 text-sm">
-                      {{
-                        lead.enrichment?.articleHeader ||
-                        "No article header extracted."
-                      }}
+                    <button
+                      v-if="lead.enrichment?.articleHeader"
+                      type="button"
+                      class="mt-1 cursor-copy text-left text-sm hover:underline"
+                      title="Click to copy header"
+                      @click.stop="copyLeadText(lead.enrichment?.articleHeader)"
+                    >
+                      {{ lead.enrichment.articleHeader }}
+                    </button>
+                    <p v-else class="mt-1 text-sm">
+                      No article header extracted.
                     </p>
 
                     <p class="text-muted-foreground mt-1 text-xs">
                       Enrichment: {{ lead.enrichment?.status || "PENDING" }}
                     </p>
                     <div class="mt-2 space-y-1 text-xs">
-                      <p>
+                      <div class="flex flex-wrap items-center gap-1">
                         <span class="text-muted-foreground">Persons:</span>
-                        {{ formatNames(lead.enrichment?.personNames) }}
-                      </p>
-                      <p>
+                        <template v-if="lead.enrichment?.personNames?.length">
+                          <button
+                            v-for="personName in lead.enrichment.personNames"
+                            :key="`${lead._id}-person-${personName}`"
+                            type="button"
+                            class="cursor-copy rounded border border-border/70 px-1.5 py-0.5 text-left hover:bg-muted"
+                            title="Click to copy person name"
+                            @click.stop="copyLeadText(personName)"
+                          >
+                            {{ personName }}
+                          </button>
+                        </template>
+                        <span v-else class="text-muted-foreground"> - </span>
+                      </div>
+                      <div class="flex flex-wrap items-center gap-1">
                         <span class="text-muted-foreground">Companies:</span>
-                        {{ formatNames(lead.enrichment?.companyNames) }}
-                      </p>
+                        <template v-if="lead.enrichment?.companyNames?.length">
+                          <button
+                            v-for="companyName in lead.enrichment.companyNames"
+                            :key="`${lead._id}-company-${companyName}`"
+                            type="button"
+                            class="cursor-copy rounded border border-border/70 px-1.5 py-0.5 text-left hover:bg-muted"
+                            title="Click to copy company name"
+                            @click.stop="copyLeadText(companyName)"
+                          >
+                            {{ companyName }}
+                          </button>
+                        </template>
+                        <span v-else class="text-muted-foreground"> - </span>
+                      </div>
                     </div>
                   </template>
                 </article>

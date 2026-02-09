@@ -68,7 +68,8 @@ const pagedRows = computed(() => {
 const canGoPrevious = computed(() => currentPage.value > 1);
 const canGoNext = computed(
   () =>
-    currentPage.value < totalLoadedPages.value || status.value === "CanLoadMore",
+    currentPage.value < totalLoadedPages.value ||
+    status.value === "CanLoadMore",
 );
 const loadedLeads = computed(() =>
   loadedRows.value.reduce(
@@ -250,7 +251,7 @@ async function onInputChange(event: Event) {
   <main
     class="min-h-dvh bg-[radial-gradient(circle_at_10%_12%,rgba(251,191,36,0.10),transparent_40%),radial-gradient(circle_at_92%_88%,rgba(59,130,246,0.08),transparent_42%)] px-4 py-6 sm:px-6 lg:px-8"
   >
-    <div class="mx-auto w-full max-w-[1400px] space-y-5">
+    <div class="mx-auto container space-y-5">
       <header
         class="rounded-2xl border border-border/70 bg-card/90 p-5 shadow-sm backdrop-blur"
       >
@@ -272,7 +273,7 @@ async function onInputChange(event: Event) {
             multiple
             class="hidden"
             @change="onInputChange"
-          >
+          />
           <div class="flex flex-wrap items-center gap-3">
             <Button
               type="button"
@@ -379,7 +380,7 @@ async function onInputChange(event: Event) {
                 >
                 <TableCell>
                   <NuxtLink
-                    :to="`/editor/${publication._id}/1`"
+                    :to="`/editor/${publication._id}`"
                     class="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted"
                   >
                     Open Editor
@@ -518,7 +519,11 @@ async function onInputChange(event: Event) {
             :disabled="!canGoNext || isLoading"
             @click="nextPage"
           >
-            {{ status === "CanLoadMore" && currentPage === totalLoadedPages ? "Load Next Page" : "Next" }}
+            {{
+              status === "CanLoadMore" && currentPage === totalLoadedPages
+                ? "Load Next Page"
+                : "Next"
+            }}
           </Button>
 
           <span v-if="isLoading" class="text-muted-foreground pl-1 text-xs">
