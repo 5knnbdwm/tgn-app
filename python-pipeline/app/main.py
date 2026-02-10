@@ -1,7 +1,11 @@
 import os
 import re
+import time
+from hashlib import sha256
 from io import BytesIO
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import cv2
 import fitz
@@ -13,6 +17,7 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="TGN Python Pipeline", version="0.1.0")
+_CACHE_WRITE_COUNT = 0
 
 
 def _require_api_key(x_api_key: str | None = Header(default=None)) -> None:
@@ -25,17 +30,150 @@ def _request_timeout_seconds() -> int:
     return int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
 
 
-def _download_image(image_url: str) -> np.ndarray:
-    response = requests.get(image_url, timeout=_request_timeout_seconds())
+def _cache_enabled() -> bool:
+    return os.getenv("PIPELINE_DOWNLOAD_CACHE_ENABLED", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
+def _cache_dir() -> Path:
+    return Path(os.getenv("PIPELINE_DOWNLOAD_CACHE_DIR", "/tmp/tgn-pipeline-cache"))
+
+
+def _cache_ttl_seconds() -> int:
+    return max(1, int(os.getenv("PIPELINE_DOWNLOAD_CACHE_TTL_SECONDS", "21600")))
+
+
+def _cache_max_bytes() -> int:
+    return max(1, int(os.getenv("PIPELINE_DOWNLOAD_CACHE_MAX_BYTES", "1073741824")))
+
+
+def _cache_cleanup_every_writes() -> int:
+    return max(1, int(os.getenv("PIPELINE_DOWNLOAD_CACHE_CLEANUP_EVERY_WRITES", "20")))
+
+
+def _cache_file_path(kind: str, source_url: str) -> Path:
+    parsed = urlparse(source_url)
+    stable_source = f"{kind}:{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    digest = sha256(stable_source.encode("utf-8")).hexdigest()
+    extension = Path(parsed.path).suffix.lower()
+    if len(extension) > 8:
+        extension = ""
+    return _cache_dir() / f"{digest}{extension}"
+
+
+def _cache_get(kind: str, source_url: str) -> bytes | None:
+    if not _cache_enabled():
+        return None
+
+    cache_path = _cache_file_path(kind, source_url)
+    try:
+        stat = cache_path.stat()
+    except FileNotFoundError:
+        return None
+
+    now = time.time()
+    if now - stat.st_mtime > _cache_ttl_seconds():
+        try:
+            cache_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
+
+    try:
+        data = cache_path.read_bytes()
+        os.utime(cache_path, None)
+        return data
+    except OSError:
+        return None
+
+
+def _cache_cleanup() -> None:
+    cache_directory = _cache_dir()
+    try:
+        cache_directory.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+
+    now = time.time()
+    ttl = _cache_ttl_seconds()
+    max_bytes = _cache_max_bytes()
+    files: list[tuple[Path, float, int]] = []
+
+    for path in cache_directory.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if now - stat.st_mtime > ttl:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+        files.append((path, stat.st_mtime, stat.st_size))
+
+    files.sort(key=lambda row: row[1], reverse=True)
+    total_size = sum(row[2] for row in files)
+    for path, _, size in files:
+        if total_size <= max_bytes:
+            break
+        try:
+            path.unlink(missing_ok=True)
+            total_size -= size
+        except OSError:
+            continue
+
+
+def _cache_put(kind: str, source_url: str, payload: bytes) -> None:
+    if not _cache_enabled():
+        return
+
+    cache_directory = _cache_dir()
+    try:
+        cache_directory.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+
+    cache_path = _cache_file_path(kind, source_url)
+    temp_path = cache_path.with_suffix(f"{cache_path.suffix}.tmp")
+    try:
+        temp_path.write_bytes(payload)
+        temp_path.replace(cache_path)
+        global _CACHE_WRITE_COUNT
+        _CACHE_WRITE_COUNT += 1
+        if _CACHE_WRITE_COUNT % _cache_cleanup_every_writes() == 0:
+            _cache_cleanup()
+    except OSError:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _download_bytes(source_url: str, kind: str) -> bytes:
+    cached = _cache_get(kind, source_url)
+    if cached is not None:
+        return cached
+
+    response = requests.get(source_url, timeout=_request_timeout_seconds())
     response.raise_for_status()
-    image = Image.open(BytesIO(response.content)).convert("RGB")
+    payload = response.content
+    _cache_put(kind, source_url, payload)
+    return payload
+
+
+def _download_image(image_url: str) -> np.ndarray:
+    image = Image.open(BytesIO(_download_bytes(image_url, "image"))).convert("RGB")
     return np.array(image)
 
 
 def _download_pdf(pdf_url: str) -> bytes:
-    response = requests.get(pdf_url, timeout=_request_timeout_seconds())
-    response.raise_for_status()
-    return response.content
+    return _download_bytes(pdf_url, "pdf")
 
 
 def _pdf_render_dpi() -> int:
