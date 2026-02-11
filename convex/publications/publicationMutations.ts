@@ -187,6 +187,50 @@ export const reviewAiLead = mutation({
   },
 });
 
+export const deleteLead = mutation({
+  args: {
+    leadId: v.id("leads"),
+  },
+  handler: async (ctx, args) => {
+    await authorize(ctx, "lead.delete");
+
+    const lead = await ctx.db.get(args.leadId);
+    if (!lead) {
+      throw new Error("Lead not found");
+    }
+    if (lead.isDeleted) {
+      return true;
+    }
+
+    const publication = await ctx.db.get(lead.publicationId);
+    if (!publication) {
+      throw new Error("Publication not found");
+    }
+
+    const ts = nowTs();
+    await ctx.db.patch(args.leadId, {
+      isDeleted: true,
+      updatedAt: ts,
+    });
+
+    const leads = await ctx.db
+      .query("leads")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", lead.publicationId),
+      )
+      .collect();
+    const activeLeadCount = leads.filter((item) => !item.isDeleted).length;
+    await ctx.db.patch(lead.publicationId, {
+      numberOfLeads: activeLeadCount,
+      status: activeLeadCount > 0 ? "LEADS_FOUND" : "NO_LEADS_FOUND",
+      leadObtainedAt: ts,
+      updatedAt: ts,
+    });
+
+    return true;
+  },
+});
+
 export const updatePublicationStatus = internalMutation({
   args: {
     publicationId: v.id("publications"),

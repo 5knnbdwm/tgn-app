@@ -21,6 +21,7 @@ export const permissions = {
   "publication.delete": { roles: ["admin", "member"] },
   "lead.manual.create": { roles: ["admin", "member"] },
   "lead.ai.review": { roles: ["admin", "member"] },
+  "lead.delete": { roles: ["admin", "member"] },
   "lead.review.options.manage": { roles: ["admin"] },
   "user.read": { roles: ["admin"] },
   "user.create": { roles: ["admin"] },

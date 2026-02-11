@@ -10,6 +10,8 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Trash2,
   X,
 } from "lucide-vue-next";
 import {
@@ -64,6 +66,9 @@ const { mutate: createMissedLead } = useConvexMutation(
 const { mutate: reviewAiLead } = useConvexMutation(
   api.publications.publicationMutations.reviewAiLead,
 );
+const { mutate: deleteLead } = useConvexMutation(
+  api.publications.publicationMutations.deleteLead,
+);
 
 type AiLeadReviewDecision = "CONFIRMED" | "DENIED";
 
@@ -73,6 +78,9 @@ const retryingProcessing = ref(false);
 const drawModePageNumber = ref<number | null>(null);
 const creatingMissedLead = ref(false);
 const reviewingLeadId = ref<Id<"leads"> | null>(null);
+const deletingLeadId = ref<Id<"leads"> | null>(null);
+const pendingDeleteLeadIds = ref<Record<string, true>>({});
+const pendingDeleteTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const leadSidebarScrollContainer = ref<HTMLElement | null>(null);
 const leadPageSectionRefs = ref<Record<number, HTMLElement | null>>({});
 const sidebar = computed(() => sidebarData.data.value);
@@ -310,6 +318,7 @@ async function handleCreateMissedLead(payload: {
 }
 
 function confidenceLabel(score: number) {
+  if (!Number.isFinite(score)) return "n/a";
   return `${Math.round(score)}% conf.`;
 }
 
@@ -371,6 +380,77 @@ async function clearLeadReview(leadId: Id<"leads">) {
     reviewingLeadId.value = null;
   }
 }
+
+function hasPendingDelete(leadId: Id<"leads">) {
+  return !!pendingDeleteLeadIds.value[leadId];
+}
+
+function setPendingDelete(leadId: Id<"leads">, value: boolean) {
+  if (value) {
+    pendingDeleteLeadIds.value = {
+      ...pendingDeleteLeadIds.value,
+      [leadId]: true,
+    };
+    return;
+  }
+  pendingDeleteLeadIds.value = Object.fromEntries(
+    Object.entries(pendingDeleteLeadIds.value).filter(([id]) => id !== leadId),
+  );
+}
+
+async function commitLeadDelete(leadId: Id<"leads">) {
+  if (!hasPendingDelete(leadId)) return;
+  if (deletingLeadId.value && deletingLeadId.value !== leadId) {
+    setTimeout(() => {
+      void commitLeadDelete(leadId);
+    }, 100);
+    return;
+  }
+  const timer = pendingDeleteTimers.get(leadId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingDeleteTimers.delete(leadId);
+  }
+  setPendingDelete(leadId, false);
+  deletingLeadId.value = leadId;
+  try {
+    await deleteLead({ leadId });
+    if (selectedLeadId.value === leadId) {
+      selectedLeadId.value = null;
+    }
+    toast.success("Lead deleted.");
+  } catch {
+    toast.error("Unable to delete lead.");
+  } finally {
+    deletingLeadId.value = null;
+  }
+}
+
+function scheduleLeadDelete(leadId: Id<"leads">) {
+  if (reviewingLeadId.value || deletingLeadId.value || hasPendingDelete(leadId))
+    return;
+  setPendingDelete(leadId, true);
+  const timer = setTimeout(() => {
+    void commitLeadDelete(leadId);
+  }, 2500);
+  pendingDeleteTimers.set(leadId, timer);
+}
+
+function undoLeadDelete(leadId: Id<"leads">) {
+  const timer = pendingDeleteTimers.get(leadId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingDeleteTimers.delete(leadId);
+  }
+  setPendingDelete(leadId, false);
+}
+
+onBeforeUnmount(() => {
+  for (const timer of pendingDeleteTimers.values()) {
+    clearTimeout(timer);
+  }
+  pendingDeleteTimers.clear();
+});
 
 async function copyLeadText(value?: string) {
   const text = value?.trim();
@@ -487,7 +567,9 @@ watch(
             </p>
           </div>
 
-          <div class="grid w-full gap-2 sm:grid-cols-2 xl:w-auto xl:flex-shrink-0">
+          <div
+            class="grid w-full gap-2 sm:grid-cols-2 xl:w-auto xl:flex-shrink-0"
+          >
             <section
               class="rounded-xl border border-sky-200/70 bg-gradient-to-r from-sky-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:border-sky-900/70 dark:from-sky-950/55 dark:shadow-[inset_0_1px_0_rgba(56,189,248,0.12)]"
             >
@@ -503,7 +585,9 @@ watch(
                   :disabled="!previousPage"
                   @click="previousPage && setPage(previousPage)"
                 >
-                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
+                  <span
+                    class="inline-flex min-w-0 items-center gap-1.5 text-xs"
+                  >
                     <ChevronLeft class="size-3.5" />
                     Prev Page
                   </span>
@@ -519,7 +603,9 @@ watch(
                   :disabled="!nextPage"
                   @click="nextPage && setPage(nextPage)"
                 >
-                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
+                  <span
+                    class="inline-flex min-w-0 items-center gap-1.5 text-xs"
+                  >
                     Next Page
                     <ChevronRight class="size-3.5" />
                   </span>
@@ -547,7 +633,9 @@ watch(
                   :disabled="!previousLeadPage"
                   @click="previousLeadPage && setPage(previousLeadPage)"
                 >
-                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
+                  <span
+                    class="inline-flex min-w-0 items-center gap-1.5 text-xs"
+                  >
                     <ChevronLeft class="size-3.5" />
                     Prev Lead
                   </span>
@@ -563,7 +651,9 @@ watch(
                   :disabled="!nextLeadPage"
                   @click="nextLeadPage && setPage(nextLeadPage)"
                 >
-                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
+                  <span
+                    class="inline-flex min-w-0 items-center gap-1.5 text-xs"
+                  >
                     Next Lead
                     <ChevronRight class="size-3.5" />
                   </span>
@@ -710,13 +800,183 @@ watch(
                       selectedLeadId === lead._id ? null : selectedLeadId
                   "
                 >
-                  <div class="flex items-center justify-between gap-2">
-                    <p class="text-sm font-semibold">
+                  <div class="flex items-start justify-between gap-2">
+                    <p class="flex items-center gap-2 text-sm font-semibold">
                       {{ formatLeadCategory(lead.category) }}
+                      <span
+                        v-if="lead.category === 'AI_LEAD'"
+                        class="text-muted-foreground text-xs font-normal"
+                      >
+                        {{ confidenceLabel(lead.confidenceScore) }}
+                      </span>
                     </p>
-                    <p class="text-muted-foreground text-xs">
-                      {{ confidenceLabel(lead.confidenceScore) }}
-                    </p>
+                    <div class="ml-auto flex shrink-0 items-center gap-1.5">
+                      <template
+                        v-if="
+                          lead.category === 'AI_LEAD' &&
+                          !(lead.reviewStatus && lead.tag)
+                        "
+                      >
+                        <template
+                          v-if="optionsForLeadDecision('CONFIRMED').length <= 1"
+                        >
+                          <Button
+                            size="icon-sm"
+                            variant="success"
+                            title="Confirm lead"
+                            aria-label="Confirm lead"
+                            :disabled="
+                              reviewingLeadId === lead._id ||
+                              deletingLeadId === lead._id ||
+                              hasPendingDelete(lead._id)
+                            "
+                            @click="chooseLeadDecision(lead, 'CONFIRMED')"
+                          >
+                            <Check class="size-3.5" />
+                          </Button>
+                        </template>
+                        <DropdownMenu v-else>
+                          <DropdownMenuTrigger as-child>
+                            <Button
+                              size="icon-sm"
+                              variant="success"
+                              title="Confirm lead"
+                              aria-label="Confirm lead"
+                              :disabled="
+                                reviewingLeadId === lead._id ||
+                                deletingLeadId === lead._id ||
+                                hasPendingDelete(lead._id)
+                              "
+                            >
+                              <Check class="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" class="w-44">
+                            <DropdownMenuLabel>Confirm tag</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              v-for="option in optionsForLeadDecision(
+                                'CONFIRMED',
+                              )"
+                              :key="`${lead._id}-confirm-${option.value}`"
+                              @select="
+                                () =>
+                                  void applyLeadReview(
+                                    lead._id,
+                                    'CONFIRMED',
+                                    option.value,
+                                  )
+                              "
+                            >
+                              {{ option.label }}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <template
+                          v-if="optionsForLeadDecision('DENIED').length <= 1"
+                        >
+                          <Button
+                            size="icon-sm"
+                            variant="error"
+                            title="Deny lead"
+                            aria-label="Deny lead"
+                            :disabled="
+                              reviewingLeadId === lead._id ||
+                              deletingLeadId === lead._id ||
+                              hasPendingDelete(lead._id)
+                            "
+                            @click="chooseLeadDecision(lead, 'DENIED')"
+                          >
+                            <X class="size-3.5" />
+                          </Button>
+                        </template>
+                        <DropdownMenu v-else>
+                          <DropdownMenuTrigger as-child>
+                            <Button
+                              size="icon-sm"
+                              variant="error"
+                              title="Deny lead"
+                              aria-label="Deny lead"
+                              :disabled="
+                                reviewingLeadId === lead._id ||
+                                deletingLeadId === lead._id ||
+                                hasPendingDelete(lead._id)
+                              "
+                            >
+                              <X class="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" class="w-44">
+                            <DropdownMenuItem
+                              v-for="option in optionsForLeadDecision('DENIED')"
+                              :key="`${lead._id}-deny-${option.value}`"
+                              @select="
+                                () =>
+                                  void applyLeadReview(
+                                    lead._id,
+                                    'DENIED',
+                                    option.value,
+                                  )
+                              "
+                            >
+                              {{ option.label }}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </template>
+
+                      <button
+                        v-else-if="lead.category === 'AI_LEAD' && lead.tag"
+                        type="button"
+                        class="text-muted-foreground text-[11px]"
+                        :disabled="
+                          deletingLeadId === lead._id ||
+                          reviewingLeadId === lead._id ||
+                          hasPendingDelete(lead._id)
+                        "
+                        :class="
+                          lead.reviewStatus === 'CONFIRMED'
+                            ? 'inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-emerald-900 hover:bg-emerald-200'
+                            : 'inline-flex items-center rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-red-900 hover:bg-red-200'
+                        "
+                        title="Click to reset tag"
+                        @click="clearLeadReview(lead._id)"
+                      >
+                        {{ formatLeadTag(lead.tag) }}
+                      </button>
+
+                      <Button
+                        v-if="hasPendingDelete(lead._id)"
+                        size="icon-sm"
+                        variant="outline"
+                        title="Undo delete"
+                        aria-label="Undo delete"
+                        :disabled="deletingLeadId === lead._id"
+                        @click.stop="undoLeadDelete(lead._id)"
+                      >
+                        <RotateCcw class="size-3.5" />
+                      </Button>
+
+                      <Button
+                        v-else
+                        size="icon-sm"
+                        variant="outline"
+                        title="Delete lead"
+                        aria-label="Delete lead"
+                        :disabled="
+                          deletingLeadId === lead._id ||
+                          reviewingLeadId === lead._id
+                        "
+                        @click.stop="scheduleLeadDelete(lead._id)"
+                      >
+                        <Loader2
+                          v-if="deletingLeadId === lead._id"
+                          class="size-3.5 animate-spin"
+                        />
+                        <Trash2 v-else class="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
 
                   <template v-if="lead.category === 'AI_LEAD'">
@@ -796,125 +1056,6 @@ watch(
                     <p v-else class="text-muted-foreground mt-1 text-xs">
                       Loading enrichment...
                     </p>
-
-                    <div class="mt-2 rounded-md border border-border/70 p-2">
-                      <p
-                        class="text-muted-foreground text-[11px] font-medium uppercase tracking-[0.08em]"
-                      >
-                        Lead Review
-                      </p>
-                      <div
-                        v-if="!(lead.reviewStatus && lead.tag)"
-                        class="mt-1 flex flex-wrap gap-1.5"
-                      >
-                        <template
-                          v-if="optionsForLeadDecision('CONFIRMED').length <= 1"
-                        >
-                          <Button
-                            size="icon-sm"
-                            variant="success"
-                            title="Confirm lead"
-                            aria-label="Confirm lead"
-                            :disabled="reviewingLeadId === lead._id"
-                            @click="chooseLeadDecision(lead, 'CONFIRMED')"
-                          >
-                            <Check class="size-3.5" />
-                          </Button>
-                        </template>
-                        <DropdownMenu v-else>
-                          <DropdownMenuTrigger as-child>
-                            <Button
-                              size="icon-sm"
-                              variant="success"
-                              title="Confirm lead"
-                              aria-label="Confirm lead"
-                              :disabled="reviewingLeadId === lead._id"
-                            >
-                              <Check class="size-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" class="w-44">
-                            <DropdownMenuLabel>Confirm tag</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              v-for="option in optionsForLeadDecision(
-                                'CONFIRMED',
-                              )"
-                              :key="`${lead._id}-confirm-${option.value}`"
-                              @select="
-                                () =>
-                                  void applyLeadReview(
-                                    lead._id,
-                                    'CONFIRMED',
-                                    option.value,
-                                  )
-                              "
-                            >
-                              {{ option.label }}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        <template
-                          v-if="optionsForLeadDecision('DENIED').length <= 1"
-                        >
-                          <Button
-                            size="icon-sm"
-                            variant="error"
-                            title="Deny lead"
-                            aria-label="Deny lead"
-                            :disabled="reviewingLeadId === lead._id"
-                            @click="chooseLeadDecision(lead, 'DENIED')"
-                          >
-                            <X class="size-3.5" />
-                          </Button>
-                        </template>
-                        <DropdownMenu v-else>
-                          <DropdownMenuTrigger as-child>
-                            <Button
-                              size="icon-sm"
-                              variant="error"
-                              title="Deny lead"
-                              aria-label="Deny lead"
-                              :disabled="reviewingLeadId === lead._id"
-                            >
-                              <X class="size-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" class="w-44">
-                            <DropdownMenuItem
-                              v-for="option in optionsForLeadDecision('DENIED')"
-                              :key="`${lead._id}-deny-${option.value}`"
-                              @select="
-                                () =>
-                                  void applyLeadReview(
-                                    lead._id,
-                                    'DENIED',
-                                    option.value,
-                                  )
-                              "
-                            >
-                              {{ option.label }}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-
-                      <button
-                        v-if="lead.reviewStatus && lead.tag"
-                        type="button"
-                        class="text-muted-foreground mt-2 text-[11px]"
-                        :class="
-                          lead.reviewStatus === 'CONFIRMED'
-                            ? 'inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-emerald-900 hover:bg-emerald-200'
-                            : 'inline-flex items-center rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-red-900 hover:bg-red-200'
-                        "
-                        title="Click to reset tag"
-                        @click="clearLeadReview(lead._id)"
-                      >
-                        {{ formatLeadTag(lead.tag) }}
-                      </button>
-                    </div>
                   </template>
                 </article>
               </div>
