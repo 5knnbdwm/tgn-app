@@ -7,6 +7,7 @@ This service handles OCR, segmentation, lead classification, and lead enrichment
 - `POST /pdf/analyze`
 - `POST /pdf/process`
 - `POST /ocr/page`
+- `POST /publication/metadata`
 - `POST /segment/page`
 - `POST /classify/lead`
 - `POST /enrich/lead`
@@ -35,3 +36,12 @@ docker run --rm -p 8080:8080 --env-file .env tgn-python-pipeline
 If `PIPELINE_API_KEY` is set, requests must include header:
 
 `x-api-key: <PIPELINE_API_KEY>`
+
+## Optional LLM Fallback (OpenRouter)
+
+Publication metadata extraction can use an OpenRouter model as fallback when
+heuristics are low confidence.
+
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL` (default: `qwen/qwen2.5-7b-instruct`)
+- `OPENROUTER_TIMEOUT_SECONDS` (default: `15`)

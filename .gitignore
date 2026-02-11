@@ -25,3 +25,7 @@ logs
 
 # Custom
 old-codebase
+
+# Python
+__pycache__
+.venv

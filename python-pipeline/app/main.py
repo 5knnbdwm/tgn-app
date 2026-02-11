@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from io import BytesIO
 from typing import Any
 
@@ -384,6 +385,31 @@ def _extract_publication_name_from_pages(pages: list[PublicationMetadataPage]) -
     return _normalize_spaces(best).strip(" |-_")
 
 
+def _extract_publication_name_with_score(pages: list[PublicationMetadataPage]) -> tuple[str | None, float]:
+    candidates: list[tuple[float, str]] = []
+    sorted_pages = sorted(pages, key=lambda item: item.page_number)
+    for page_index, page in enumerate(sorted_pages):
+        lines = _group_word_boxes_into_lines(page.word_boxes)
+        if not lines:
+            continue
+
+        top_limit = (page.page_height * 0.3) if page.page_height else None
+        for y_pos, line_text in lines[:24]:
+            if top_limit is not None and y_pos > top_limit:
+                continue
+            score = _score_publication_name_candidate(line_text)
+            if score <= 0:
+                continue
+            score += max(0.0, 0.35 - page_index * 0.15)
+            candidates.append((score, _normalize_spaces(line_text).strip(" |-_")))
+
+    if not candidates:
+        return None, 0.0
+
+    best_score, best_name = max(candidates, key=lambda item: item[0])
+    return best_name, best_score
+
+
 def _extract_publication_date_from_pages(pages: list[PublicationMetadataPage]) -> str | None:
     sorted_pages = sorted(pages, key=lambda item: item.page_number)
     for page in sorted_pages[:2]:
@@ -397,16 +423,141 @@ def _extract_publication_date_from_pages(pages: list[PublicationMetadataPage]) -
     return None
 
 
+def _openrouter_timeout_seconds() -> int:
+    return int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "15"))
+
+
+def _openrouter_config() -> tuple[str | None, str]:
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip() or None
+    model = os.getenv("OPENROUTER_MODEL", "qwen/qwen2.5-7b-instruct").strip()
+    return api_key, model
+
+
+def _strip_code_fence(value: str) -> str:
+    text = value.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text)
+    return text.strip()
+
+
+def _build_llm_page_digest(pages: list[PublicationMetadataPage]) -> str:
+    digest_blocks: list[str] = []
+    sorted_pages = sorted(pages, key=lambda item: item.page_number)
+    for page in sorted_pages[:2]:
+        lines = _group_word_boxes_into_lines(page.word_boxes)[:35]
+        if not lines:
+            continue
+        text_lines = [f"- y={int(y)} text={line}" for y, line in lines]
+        digest_blocks.append(f"Page {page.page_number}\n" + "\n".join(text_lines))
+    return "\n\n".join(digest_blocks)
+
+
+def _extract_publication_metadata_with_llm(
+    pages: list[PublicationMetadataPage],
+    fallback_name: str | None,
+) -> tuple[str | None, str | None]:
+    api_key, model = _openrouter_config()
+    if not api_key:
+        return None, None
+
+    digest = _build_llm_page_digest(pages)
+    if not digest:
+        return None, None
+
+    system_prompt = (
+        "You extract publication metadata from OCR lines.\n"
+        "Return ONLY compact JSON with keys: publication_name, publication_date, confidence.\n"
+        "publication_name must be null when uncertain.\n"
+        "publication_date must be null when uncertain.\n"
+        "confidence is a number from 0 to 1."
+    )
+    user_prompt = (
+        f"Fallback filename: {fallback_name or 'null'}\n\n"
+        "OCR lines from first pages:\n"
+        f"{digest}\n\n"
+        "Rules:\n"
+        "- Prefer masthead/publication title, not article titles.\n"
+        "- If title seems unavailable, return null.\n"
+        "- If date is unavailable, return null.\n"
+        "- No extra keys, no prose."
+    )
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0,
+                "response_format": {"type": "json_object"},
+            },
+            timeout=_openrouter_timeout_seconds(),
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        parsed = json.loads(_strip_code_fence(content))
+        confidence = parsed.get("confidence", 0)
+        try:
+            confidence_num = float(confidence)
+        except (TypeError, ValueError):
+            confidence_num = 0.0
+
+        publication_name = parsed.get("publication_name")
+        publication_date = parsed.get("publication_date")
+        if isinstance(publication_name, str):
+            publication_name = _normalize_spaces(publication_name)
+        else:
+            publication_name = None
+        if isinstance(publication_date, str):
+            publication_date = _normalize_spaces(publication_date)
+        else:
+            publication_date = None
+
+        if confidence_num < 0.6:
+            return None, None
+        return publication_name or None, publication_date or None
+    except Exception:
+        return None, None
+
+
 @app.post(
     "/publication/metadata",
     response_model=PublicationMetadataResponse,
     dependencies=[Depends(_require_api_key)],
 )
 def publication_metadata(payload: PublicationMetadataRequest) -> PublicationMetadataResponse:
-    extracted_name = _extract_publication_name_from_pages(payload.pages)
+    extracted_name, name_score = _extract_publication_name_with_score(payload.pages)
     publication_date = _extract_publication_date_from_pages(payload.pages)
+    should_try_llm = (
+        extracted_name is None
+        or _looks_cryptic_name(extracted_name)
+        or name_score < 1.85
+        or publication_date is None
+    )
+    llm_name: str | None = None
+    llm_date: str | None = None
+    if should_try_llm:
+        llm_name, llm_date = _extract_publication_metadata_with_llm(
+            payload.pages,
+            payload.fallback_name,
+        )
 
-    if extracted_name:
+    if llm_name and not _looks_cryptic_name(llm_name):
+        publication_name = llm_name
+    elif extracted_name:
         publication_name = extracted_name
     else:
         fallback_name = _prettify_fallback_name(payload.fallback_name)
@@ -414,6 +565,9 @@ def publication_metadata(payload: PublicationMetadataRequest) -> PublicationMeta
             publication_name = fallback_name
         else:
             publication_name = None
+
+    if llm_date:
+        publication_date = llm_date
 
     return PublicationMetadataResponse(
         publication_name=publication_name,
