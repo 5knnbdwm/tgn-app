@@ -118,6 +118,75 @@ export const createMissedLead = mutation({
   },
 });
 
+export const reviewAiLead = mutation({
+  args: {
+    leadId: v.id("leads"),
+    decision: v.union(
+      v.literal("CONFIRMED"),
+      v.literal("DENIED"),
+      v.literal("CLEAR"),
+    ),
+    tag: v.optional(v.string()),
+    tagReason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await authorize(ctx, "lead.ai.review");
+
+    const lead = await ctx.db.get(args.leadId);
+    if (!lead) {
+      throw new Error("Lead not found");
+    }
+    if (lead.isDeleted) {
+      throw new Error("Lead is deleted");
+    }
+    if (lead.category !== "AI_LEAD") {
+      throw new Error("Only AI leads can be reviewed");
+    }
+
+    const ts = nowTs();
+
+    const decision = args.decision;
+
+    if (decision === "CLEAR") {
+      await ctx.db.patch(args.leadId, {
+        reviewStatus: undefined,
+        reviewedByUserId: undefined,
+        reviewedAt: undefined,
+        tag: undefined,
+        tagReason: undefined,
+        updatedAt: ts,
+      });
+      return true;
+    }
+
+    if (!args.tag) {
+      throw new Error("A review option must be selected");
+    }
+
+    const activeOptions = await ctx.db
+      .query("leadReviewOptions")
+      .withIndex("by_decision", (q) => q.eq("decision", decision))
+      .collect();
+    const hasTag = activeOptions.some(
+      (option) => option.isActive && option.tag === args.tag,
+    );
+    if (!hasTag) {
+      throw new Error("Invalid review option for selected decision");
+    }
+
+    await ctx.db.patch(args.leadId, {
+      reviewStatus: decision,
+      reviewedByUserId: user._id,
+      reviewedAt: ts,
+      tag: args.tag,
+      tagReason: args.tag === "OTHER" ? args.tagReason?.trim() : undefined,
+      updatedAt: ts,
+    });
+
+    return true;
+  },
+});
+
 export const updatePublicationStatus = internalMutation({
   args: {
     publicationId: v.id("publications"),

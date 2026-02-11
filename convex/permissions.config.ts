@@ -20,6 +20,8 @@ export const permissions = {
   "publication.retry": { roles: ["admin", "member"] },
   "publication.delete": { roles: ["admin", "member"] },
   "lead.manual.create": { roles: ["admin", "member"] },
+  "lead.ai.review": { roles: ["admin", "member"] },
+  "lead.review.options.manage": { roles: ["admin"] },
   "user.read": { roles: ["admin"] },
   "user.create": { roles: ["admin"] },
   "user.role.update": { roles: ["admin"] },
