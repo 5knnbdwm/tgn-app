@@ -15,16 +15,13 @@ function derivePublicationName(fileName: string) {
 
 export const createPublicationUpload = mutation({
   args: {
-    fileStorageId: v.id("_storage"),
+    fileKey: v.string(),
     fileName: v.string(),
+    fileMimeType: v.optional(v.string()),
+    fileSize: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await authorize(ctx, "publication.create");
-
-    const fileMeta = await ctx.db.system.get("_storage", args.fileStorageId);
-    if (!fileMeta) {
-      throw new Error("File not found");
-    }
 
     const ts = nowTs();
     const publicationName = derivePublicationName(args.fileName);
@@ -35,9 +32,9 @@ export const createPublicationUpload = mutation({
       },
       status: "PAGE_PROCESSING" as PublicationStatus,
       sourceType: "PDF" as SourceType,
-      publicationFileStorageId: args.fileStorageId,
-      publicationFileMimeType: fileMeta.contentType || "",
-      publicationFileSize: fileMeta.size,
+      publicationFileKey: args.fileKey,
+      publicationFileMimeType: args.fileMimeType || "application/pdf",
+      publicationFileSize: args.fileSize || 0,
       pageCount: 0,
       numberOfLeads: 0,
       processPageAttempt: 0,
@@ -50,7 +47,7 @@ export const createPublicationUpload = mutation({
       internal.publications.publicationActions.enqueuePublicationProcessing,
       {
         publicationId: createdPublication,
-        storageId: args.fileStorageId,
+        fileKey: args.fileKey,
       },
     );
     return createdPublication;
@@ -138,7 +135,7 @@ export const createPublicationPage = internalMutation({
   args: {
     publicationId: v.id("publications"),
     pageNumber: v.number(),
-    pageImageStorageId: v.id("_storage"),
+    pageImageKey: v.string(),
     pageWidth: v.number(),
     pageHeight: v.number(),
   },
@@ -151,7 +148,7 @@ export const createPublicationPage = internalMutation({
     const createdPublicationPage = await ctx.db.insert("publicationPages", {
       publicationId: args.publicationId,
       pageNumber: args.pageNumber,
-      pageImageStorageId: args.pageImageStorageId,
+      pageImageKey: args.pageImageKey,
       pageWidth: args.pageWidth,
       pageHeight: args.pageHeight,
       createdAt: nowTs(),
@@ -167,14 +164,14 @@ export const setPublicationPageStats = internalMutation({
     pageCount: v.number(),
     maxPageWidth: v.number(),
     maxPageHeight: v.number(),
-    pageImageStorageIds: v.array(v.id("_storage")),
+    pageImageKeys: v.array(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.publicationId, {
       pageCount: args.pageCount,
       maxPageWidth: args.maxPageWidth,
       maxPageHeight: args.maxPageHeight,
-      pageImageStorageIds: args.pageImageStorageIds,
+      pageImageKeys: args.pageImageKeys,
       updatedAt: nowTs(),
     });
     return true;
@@ -379,7 +376,7 @@ export const retryPublicationProcessing = mutation({
         internal.publications.publicationActions.enqueuePublicationProcessing,
         {
           publicationId: args.publicationId,
-          storageId: publication.publicationFileStorageId,
+          fileKey: publication.publicationFileKey,
         },
       );
       return { queued: true, status: "PAGE_PROCESSING" as PublicationStatus };

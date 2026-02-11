@@ -1,10 +1,10 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
+import { r2 } from "../r2";
 
 type PdfProcessResult = {
-  storage_id: string;
+  storage_key: string;
   width: number;
   height: number;
   page: number;
@@ -95,10 +95,10 @@ async function mapWithConcurrency<T>(
 }
 
 export const enqueuePublicationProcessing = internalAction({
-  args: { storageId: v.id("_storage"), publicationId: v.id("publications") },
+  args: { fileKey: v.string(), publicationId: v.id("publications") },
   returns: v.array(
     v.object({
-      storageId: v.id("_storage"),
+      key: v.string(),
       width: v.number(),
       height: v.number(),
       page: v.number(),
@@ -106,10 +106,9 @@ export const enqueuePublicationProcessing = internalAction({
   ),
   handler: async (ctx, args) => {
     try {
-      const pdfUrl = await ctx.storage.getUrl(args.storageId);
-      if (!pdfUrl) {
-        throw new Error("PDF URL not found");
-      }
+      const pdfUrl = await r2.getUrl(args.fileKey, {
+        expiresIn: 60 * 60,
+      });
 
       const chunkSize = getPositiveIntEnv("PDF_UPLOAD_BATCH_SIZE", 20);
       const maxAttempts = getPositiveIntEnv("PDF_UPLOAD_MAX_ATTEMPTS", 3);
@@ -130,7 +129,7 @@ export const enqueuePublicationProcessing = internalAction({
       }
 
       const results: {
-        storageId: Id<"_storage">;
+        key: string;
         width: number;
         height: number;
         page: number;
@@ -139,10 +138,10 @@ export const enqueuePublicationProcessing = internalAction({
       for (let startPage = 1; startPage <= pageCount; startPage += chunkSize) {
         const endPage = Math.min(pageCount, startPage + chunkSize - 1);
         const expectedChunkPages = endPage - startPage + 1;
-        const uploadUrls = await Promise.all(
+        const uploads = await Promise.all(
           Array.from(
             { length: expectedChunkPages },
-            async () => await ctx.storage.generateUploadUrl(),
+            async () => await r2.generateUploadUrl(),
           ),
         );
 
@@ -152,7 +151,7 @@ export const enqueuePublicationProcessing = internalAction({
           () =>
             postPipeline<{ results: PdfProcessResult[] }>("/pdf/process", {
               pdf_url: pdfUrl,
-              upload_urls: uploadUrls,
+              uploads,
               start_page: startPage,
               end_page: endPage,
             }),
@@ -166,7 +165,7 @@ export const enqueuePublicationProcessing = internalAction({
 
         for (const row of processedChunk.results) {
           results.push({
-            storageId: row.storage_id as Id<"_storage">,
+            key: row.storage_key,
             width: row.width,
             height: row.height,
             page: row.page,
@@ -184,7 +183,7 @@ export const enqueuePublicationProcessing = internalAction({
             {
               publicationId: args.publicationId,
               pageNumber: result.page,
-              pageImageStorageId: result.storageId,
+              pageImageKey: result.key,
               pageWidth: result.width,
               pageHeight: result.height,
             },
@@ -205,7 +204,7 @@ export const enqueuePublicationProcessing = internalAction({
             sortedResults.length > 0
               ? Math.max(...sortedResults.map((result) => result.height))
               : 0,
-          pageImageStorageIds: sortedResults.map((result) => result.storageId),
+          pageImageKeys: sortedResults.map((result) => result.key),
         },
       );
 

@@ -3,6 +3,7 @@ import { internalQuery, query } from "../_generated/server";
 import { paginationOptsValidator } from "convex/server";
 import { publicationStatusValidator, sourceTypeValidator } from "../model";
 import { authorize } from "../lib/permissions";
+import { r2 } from "../r2";
 
 export const listPublications = query({
   args: {
@@ -59,7 +60,7 @@ export const getPage = query({
       )
       .first();
     if (!page) return null;
-    const pageImageUrl = await ctx.storage.getUrl(page.pageImageStorageId);
+    const pageImageUrl = await r2.getUrl(page.pageImageKey);
     const leads = await ctx.db
       .query("leads")
       .withIndex("by_publicationId_pageNumber", (q) =>

@@ -1,29 +1,19 @@
-import { mutation, query } from "./_generated/server";
+import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { authorize } from "./lib/permissions";
+import { r2 } from "./r2";
+export { generateUploadUrl, syncMetadata } from "./r2";
 
-// Generate a short-lived upload URL
-export const generateUploadUrl = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await authorize(ctx, "publication.create");
-    return await ctx.storage.generateUploadUrl();
-  },
-});
-
-// Get file URL for display
+// Get signed file URL for display/download
 export const getUrl = query({
-  args: { storageId: v.id("_storage") },
+  args: {
+    key: v.string(),
+    expiresIn: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     await authorize(ctx, "publication.read");
-    return await ctx.storage.getUrl(args.storageId);
+    return await r2.getUrl(args.key, {
+      expiresIn: args.expiresIn,
+    });
   },
 });
-
-// // Delete a file from storage
-// export const deleteFile = mutation({
-//   args: { storageId: v.id("_storage") },
-//   handler: async (ctx, args) => {
-//     await ctx.storage.delete(args.storageId);
-//   },
-// });

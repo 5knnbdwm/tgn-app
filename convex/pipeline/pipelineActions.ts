@@ -4,12 +4,13 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { assertBbox, overlaps } from "../model";
+import { r2 } from "../r2";
 
 type WordBox = { text: string; bbox: number[] };
 type Segment = { bbox: number[] };
 type PublicationPage = {
   pageNumber: number;
-  pageImageStorageId: Id<"_storage">;
+  pageImageKey: string;
   pageWidth: number;
   pageHeight: number;
 };
@@ -167,12 +168,9 @@ async function runPipeline(
     pageConcurrency,
     async (page): Promise<PageResult> => {
       try {
-        const imageUrl = await ctx.storage.getUrl(page.pageImageStorageId);
-        if (!imageUrl) {
-          throw new ConvexError(
-            `Could not resolve page image URL for page ${page.pageNumber}`,
-          );
-        }
+        const imageUrl = await r2.getUrl(page.pageImageKey, {
+          expiresIn: 60 * 60,
+        });
 
         const ocrResult = await postPipelineWithRetry<{
           engine?: string;

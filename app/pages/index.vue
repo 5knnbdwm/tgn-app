@@ -35,12 +35,11 @@ const {
   { initialNumItems: 20 },
 );
 
-const { upload, pending, error } = useConvexFileUpload(
+const { mutate: generateUploadUrl } = useConvexMutation(
   api.files.generateUploadUrl,
-  {
-    allowedTypes: ["application/pdf"],
-    maxSize: 250 * 1024 * 1024,
-  },
+);
+const { mutate: syncMetadata } = useConvexMutation(
+  api.files.syncMetadata,
 );
 const { mutate: createPublication } = useConvexMutation(
   api.publications.publicationMutations.createPublicationUpload,
@@ -52,6 +51,8 @@ const convex = useConvex();
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const selectedFileCount = ref(0);
+const pending = ref(false);
+const uploadError = ref<string | null>(null);
 const retryingPublicationId = ref<Id<"publications"> | null>(null);
 const downloadingPublicationId = ref<Id<"publications"> | null>(null);
 const currentPage = ref(1);
@@ -180,7 +181,7 @@ async function retryPublication(publicationId: Id<"publications">) {
 async function downloadPublication(publication: {
   _id: Id<"publications">;
   name: string;
-  publicationFileStorageId: Id<"_storage">;
+  publicationFileKey: string;
 }) {
   if (!convex || downloadingPublicationId.value) return;
 
@@ -188,7 +189,8 @@ async function downloadPublication(publication: {
 
   try {
     const fileUrl = await convex.query(api.files.getUrl, {
-      storageId: publication.publicationFileStorageId,
+      key: publication.publicationFileKey,
+      expiresIn: 60 * 60,
     });
     if (!fileUrl) return;
 
@@ -226,24 +228,44 @@ async function onInputChange(event: Event) {
   const files = input.files;
   if (!files) return;
   selectedFileCount.value = files.length;
+  pending.value = true;
+  uploadError.value = null;
 
   for await (const file of files) {
     if (file.type !== "application/pdf") continue;
+    if (file.size > 250 * 1024 * 1024) {
+      uploadError.value = "Upload failed. Please try again.";
+      continue;
+    }
 
     try {
-      const id = await upload(file);
+      const { key, url } = await generateUploadUrl({});
+      const uploadResponse = await fetch(url, {
+        method: "PUT",
+        headers: {
+          "content-type": file.type || "application/pdf",
+        },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(`R2 upload failed with status ${uploadResponse.status}`);
+      }
+      await syncMetadata({ key });
 
       await createPublication({
-        fileStorageId: id as Id<"_storage">,
+        fileKey: key,
         fileName: file.name,
+        fileMimeType: file.type || "application/pdf",
+        fileSize: file.size,
       });
     } catch {
-      console.error(error);
+      uploadError.value = "Upload failed. Please try again.";
     }
   }
 
   input.value = "";
   selectedFileCount.value = 0;
+  pending.value = false;
 }
 </script>
 
@@ -300,8 +322,8 @@ async function onInputChange(event: Event) {
           <p class="text-muted-foreground mt-2 text-xs">
             PDF only, max 250MB per file.
           </p>
-          <p v-if="error" class="mt-2 text-xs font-medium text-red-700">
-            Upload failed. Please try again.
+          <p v-if="uploadError" class="mt-2 text-xs font-medium text-red-700">
+            {{ uploadError }}
           </p>
         </div>
       </header>
