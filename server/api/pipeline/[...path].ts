@@ -4,7 +4,6 @@ function trimTrailingSlash(value: string) {
 
 export default defineEventHandler(async (event) => {
   const path = event.context.params?.path || "";
-  const method = event.method;
   const config = useRuntimeConfig(event);
   const proxyApiKey = config.pipelineServiceApiKey;
   const baseUrl = trimTrailingSlash(config.pipelineServiceUrl);
@@ -32,8 +31,6 @@ export default defineEventHandler(async (event) => {
   }
 
   const upstreamUrl = `${baseUrl}/${path}`;
-
-  console.log(`[pipeline/proxy] ${method} /${path}`);
 
   try {
     return await proxyRequest(event, upstreamUrl);
