@@ -13,6 +13,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -47,6 +55,9 @@ const { mutate: createPublication } = useConvexMutation(
 const { mutate: retryPublicationProcessing } = useConvexMutation(
   api.publications.publicationMutations.retryPublicationProcessing,
 );
+const { mutate: deletePublicationMutation } = useConvexMutation(
+  api.publications.publicationMutations.deletePublication,
+);
 const convex = useConvex();
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -55,6 +66,12 @@ const pending = ref(false);
 const uploadError = ref<string | null>(null);
 const retryingPublicationId = ref<Id<"publications"> | null>(null);
 const downloadingPublicationId = ref<Id<"publications"> | null>(null);
+const deletingPublicationId = ref<Id<"publications"> | null>(null);
+const deleteDialogOpen = ref(false);
+const publicationPendingDelete = ref<{
+  _id: Id<"publications">;
+  name: string;
+} | null>(null);
 const currentPage = ref(1);
 const pageSize = 20;
 const loadedRows = computed(() => publications.value ?? []);
@@ -93,6 +110,12 @@ const confirmedCount = computed(
 watch(totalLoadedPages, (pages) => {
   if (currentPage.value > pages) {
     currentPage.value = pages;
+  }
+});
+
+watch(deleteDialogOpen, (isOpen) => {
+  if (!isOpen && !deletingPublicationId.value) {
+    publicationPendingDelete.value = null;
   }
 });
 
@@ -216,6 +239,31 @@ async function downloadPublication(publication: {
     console.error("Failed to download original publication file", error);
   } finally {
     downloadingPublicationId.value = null;
+  }
+}
+
+function requestDeletePublication(publication: {
+  _id: Id<"publications">;
+  name: string;
+}) {
+  if (deletingPublicationId.value) return;
+  publicationPendingDelete.value = publication;
+  deleteDialogOpen.value = true;
+}
+
+async function confirmDeletePublication() {
+  if (!publicationPendingDelete.value || deletingPublicationId.value) return;
+
+  const publication = publicationPendingDelete.value;
+  deletingPublicationId.value = publication._id;
+  try {
+    await deletePublicationMutation({ publicationId: publication._id });
+    deleteDialogOpen.value = false;
+    publicationPendingDelete.value = null;
+  } catch (error) {
+    console.error("Failed to delete publication", error);
+  } finally {
+    deletingPublicationId.value = null;
   }
 }
 
@@ -448,7 +496,7 @@ async function onInputChange(event: Event) {
                         <MoreHorizontal class="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" class="w-44">
+                    <DropdownMenuContent align="end" class="w-52">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -473,6 +521,18 @@ async function onInputChange(event: Event) {
                           retryingPublicationId === publication._id
                             ? "Retrying..."
                             : "Retry processing"
+                        }}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        :disabled="deletingPublicationId === publication._id"
+                        class="text-red-600 focus:text-red-700"
+                        @select="() => requestDeletePublication(publication)"
+                      >
+                        {{
+                          deletingPublicationId === publication._id
+                            ? "Deleting..."
+                            : "Delete publication"
                         }}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -556,5 +616,38 @@ async function onInputChange(event: Event) {
         </div>
       </section>
     </div>
+
+    <Dialog v-model:open="deleteDialogOpen">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete publication?</DialogTitle>
+          <DialogDescription>
+            This action cannot be undone. This will permanently delete
+            <span class="font-medium text-foreground">
+              {{ publicationPendingDelete?.name ?? "this publication" }}
+            </span>
+            and all associated data.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            :disabled="Boolean(deletingPublicationId)"
+            @click="deleteDialogOpen = false"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            :disabled="!publicationPendingDelete || Boolean(deletingPublicationId)"
+            @click="() => void confirmDeletePublication()"
+          >
+            {{ deletingPublicationId ? "Deleting..." : "Delete publication" }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </main>
 </template>
