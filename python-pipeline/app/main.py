@@ -220,6 +220,207 @@ def ocr_page(payload: OcrPageRequest) -> OcrPageResponse:
     return OcrPageResponse(word_boxes=result)
 
 
+class PublicationMetadataPage(BaseModel):
+    page_number: int
+    page_width: int | None = None
+    page_height: int | None = None
+    word_boxes: list[WordBox] = Field(default_factory=list)
+
+
+class PublicationMetadataRequest(BaseModel):
+    pages: list[PublicationMetadataPage] = Field(default_factory=list)
+    fallback_name: str | None = None
+
+
+class PublicationMetadataResponse(BaseModel):
+    publication_name: str | None = None
+    publication_date: str | None = None
+
+
+UUID_LIKE_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+MONTH_DATE_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\b[^.\n]{0,30}\b\d{4}\b",
+    re.IGNORECASE,
+)
+NUMERIC_DATE_RE = re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b")
+
+
+def _normalize_spaces(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _strip_file_extension(name: str) -> str:
+    return re.sub(r"\.[^./\\]+$", "", name).strip()
+
+
+def _looks_cryptic_name(name: str) -> bool:
+    candidate = _strip_file_extension(name)
+    if not candidate:
+        return True
+
+    compact = re.sub(r"[\s_\-.]", "", candidate)
+    if not compact:
+        return True
+    if UUID_LIKE_RE.match(candidate):
+        return True
+    if re.fullmatch(r"[0-9a-fA-F]{20,}", compact):
+        return True
+    if re.fullmatch(r"\d{8,}", compact):
+        return True
+
+    alpha_count = sum(1 for ch in compact if ch.isalpha())
+    digit_count = sum(1 for ch in compact if ch.isdigit())
+    if alpha_count < 4 and digit_count >= 6:
+        return True
+
+    return False
+
+
+def _prettify_fallback_name(name: str | None) -> str | None:
+    if not name:
+        return None
+    cleaned = _normalize_spaces(_strip_file_extension(name).replace("_", " ").replace("-", " "))
+    if not cleaned:
+        return None
+    if cleaned.isupper():
+        return cleaned.title()
+    return cleaned
+
+
+def _group_word_boxes_into_lines(word_boxes: list[WordBox]) -> list[tuple[float, str]]:
+    ordered = [
+        word
+        for word in sorted(word_boxes, key=lambda item: (item.bbox[1], item.bbox[0]))
+        if len(word.bbox) == 4 and _normalize_spaces(word.text)
+    ]
+    if not ordered:
+        return []
+
+    lines: list[dict[str, Any]] = []
+    for word in ordered:
+        y_center = (word.bbox[1] + word.bbox[3]) / 2
+        matched = None
+        for line in lines:
+            if abs(y_center - line["y"]) <= 12:
+                matched = line
+                break
+        if matched is None:
+            matched = {"y": y_center, "count": 0, "words": []}
+            lines.append(matched)
+        matched["count"] += 1
+        matched["y"] = (matched["y"] * (matched["count"] - 1) + y_center) / matched["count"]
+        matched["words"].append(word)
+
+    grouped_lines: list[tuple[float, str]] = []
+    for line in lines:
+        words = sorted(line["words"], key=lambda item: item.bbox[0])
+        text = _normalize_spaces(" ".join(word.text for word in words))
+        if text:
+            grouped_lines.append((line["y"], text))
+
+    return sorted(grouped_lines, key=lambda item: item[0])
+
+
+def _score_publication_name_candidate(text: str) -> float:
+    value = _normalize_spaces(text).strip(" |-_")
+    if len(value) < 3 or len(value) > 80:
+        return -1.0
+
+    words = value.split()
+    if len(words) > 12:
+        return -1.0
+
+    alpha_chars = sum(1 for ch in value if ch.isalpha())
+    if alpha_chars < 3:
+        return -1.0
+
+    digit_chars = sum(1 for ch in value if ch.isdigit())
+    if digit_chars > alpha_chars:
+        return -1.0
+
+    upper_chars = sum(1 for ch in value if ch.isupper())
+    letter_chars = sum(1 for ch in value if ch.isalpha())
+    uppercase_ratio = (upper_chars / letter_chars) if letter_chars else 0.0
+
+    lowered = value.lower()
+    if lowered.startswith("page ") or lowered.startswith("www.") or "http" in lowered:
+        return -1.0
+
+    score = 1.0
+    score += min(1.2, len(words) * 0.12)
+    score += uppercase_ratio * 0.7
+    if any(ch in value for ch in ("&", "|")):
+        score += 0.1
+    return score
+
+
+def _extract_publication_name_from_pages(pages: list[PublicationMetadataPage]) -> str | None:
+    candidates: list[tuple[float, str]] = []
+    sorted_pages = sorted(pages, key=lambda item: item.page_number)
+    for page_index, page in enumerate(sorted_pages):
+        lines = _group_word_boxes_into_lines(page.word_boxes)
+        if not lines:
+            continue
+
+        top_limit = (page.page_height * 0.3) if page.page_height else None
+        for y_pos, line_text in lines[:24]:
+            if top_limit is not None and y_pos > top_limit:
+                continue
+            score = _score_publication_name_candidate(line_text)
+            if score <= 0:
+                continue
+            # Earlier pages are stronger signals for masthead detection.
+            score += max(0.0, 0.35 - page_index * 0.15)
+            candidates.append((score, line_text))
+
+    if not candidates:
+        return None
+
+    best = max(candidates, key=lambda item: item[0])[1]
+    return _normalize_spaces(best).strip(" |-_")
+
+
+def _extract_publication_date_from_pages(pages: list[PublicationMetadataPage]) -> str | None:
+    sorted_pages = sorted(pages, key=lambda item: item.page_number)
+    for page in sorted_pages[:2]:
+        line_text = " ".join(text for _, text in _group_word_boxes_into_lines(page.word_boxes)[:30])
+        month_match = MONTH_DATE_RE.search(line_text)
+        if month_match:
+            return _normalize_spaces(month_match.group(0))
+        numeric_match = NUMERIC_DATE_RE.search(line_text)
+        if numeric_match:
+            return numeric_match.group(0)
+    return None
+
+
+@app.post(
+    "/publication/metadata",
+    response_model=PublicationMetadataResponse,
+    dependencies=[Depends(_require_api_key)],
+)
+def publication_metadata(payload: PublicationMetadataRequest) -> PublicationMetadataResponse:
+    extracted_name = _extract_publication_name_from_pages(payload.pages)
+    publication_date = _extract_publication_date_from_pages(payload.pages)
+
+    if extracted_name:
+        publication_name = extracted_name
+    else:
+        fallback_name = _prettify_fallback_name(payload.fallback_name)
+        if fallback_name and not _looks_cryptic_name(fallback_name):
+            publication_name = fallback_name
+        else:
+            publication_name = None
+
+    return PublicationMetadataResponse(
+        publication_name=publication_name,
+        publication_date=publication_date,
+    )
+
+
 class Segment(BaseModel):
     bbox: list[float]
     type: str = "ARTICLE"

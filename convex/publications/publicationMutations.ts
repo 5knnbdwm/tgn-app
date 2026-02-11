@@ -8,6 +8,7 @@ import {
 } from "../model";
 import { internal } from "../_generated/api";
 import { authorize } from "../lib/permissions";
+import { r2 } from "../r2";
 
 function derivePublicationName(fileName: string) {
   return fileName.replace(/\.[^/.]+$/, "").trim();
@@ -125,6 +126,47 @@ export const updatePublicationStatus = internalMutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.publicationId, {
       status: args.status,
+      updatedAt: nowTs(),
+    });
+    return true;
+  },
+});
+
+export const updatePublicationMetadata = internalMutation({
+  args: {
+    publicationId: v.id("publications"),
+    publicationName: v.optional(v.string()),
+    publicationDate: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const publication = await ctx.db.get(args.publicationId);
+    if (!publication) {
+      throw new Error("Publication not found");
+    }
+
+    const metadata = { ...(publication.metadata ?? {}) };
+    let hasChanges = false;
+
+    if (typeof args.publicationName === "string") {
+      const nextName = args.publicationName.trim();
+      if (nextName.length > 0 && metadata.publicationName !== nextName) {
+        metadata.publicationName = nextName;
+        hasChanges = true;
+      }
+    }
+
+    if (typeof args.publicationDate === "string") {
+      const nextDate = args.publicationDate.trim();
+      if (nextDate.length > 0 && metadata.publicationDate !== nextDate) {
+        metadata.publicationDate = nextDate;
+        hasChanges = true;
+      }
+    }
+
+    if (!hasChanges) return false;
+
+    await ctx.db.patch(args.publicationId, {
+      metadata,
       updatedAt: nowTs(),
     });
     return true;
@@ -400,5 +442,103 @@ export const retryPublicationProcessing = mutation({
     }
 
     return { queued: false, status: publication.status };
+  },
+});
+
+export const resetPublicationPages = internalMutation({
+  args: {
+    publicationId: v.id("publications"),
+  },
+  handler: async (ctx, args) => {
+    const pages = await ctx.db
+      .query("publicationPages")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
+      .collect();
+    await Promise.all(pages.map((page) => ctx.db.delete(page._id)));
+
+    const pageOcrRows = await ctx.db
+      .query("pageOcr")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
+      .collect();
+    await Promise.all(pageOcrRows.map((row) => ctx.db.delete(row._id)));
+
+    await ctx.db.patch(args.publicationId, {
+      pageCount: 0,
+      maxPageWidth: undefined,
+      maxPageHeight: undefined,
+      pageImageKeys: undefined,
+      updatedAt: nowTs(),
+    });
+    return true;
+  },
+});
+
+export const deletePublication = mutation({
+  args: {
+    publicationId: v.id("publications"),
+  },
+  handler: async (ctx, args) => {
+    await authorize(ctx, "publication.delete");
+
+    const publication = await ctx.db.get(args.publicationId);
+    if (!publication) {
+      throw new Error("Publication not found");
+    }
+
+    const pages = await ctx.db
+      .query("publicationPages")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
+      .collect();
+
+    const fileKeys = new Set<string>([
+      publication.publicationFileKey,
+      ...(publication.pageImageKeys ?? []),
+      ...pages.map((page) => page.pageImageKey),
+    ]);
+
+    await Promise.allSettled(
+      Array.from(fileKeys)
+        .filter((key) => key.length > 0)
+        .map((key) => r2.deleteObject(ctx, key)),
+    );
+
+    const pageOcrRows = await ctx.db
+      .query("pageOcr")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
+      .collect();
+    await Promise.all(pageOcrRows.map((row) => ctx.db.delete(row._id)));
+
+    const leads = await ctx.db
+      .query("leads")
+      .withIndex("by_publicationId", (q) =>
+        q.eq("publicationId", args.publicationId),
+      )
+      .collect();
+
+    await Promise.all(
+      leads.map(async (lead) => {
+        const enrichment = await ctx.db
+          .query("leadEnrichments")
+          .withIndex("by_leadId", (q) => q.eq("leadId", lead._id))
+          .first();
+        if (enrichment) {
+          await ctx.db.delete(enrichment._id);
+        }
+        await ctx.db.delete(lead._id);
+      }),
+    );
+
+    await Promise.all(pages.map((page) => ctx.db.delete(page._id)));
+    await ctx.db.delete(args.publicationId);
+
+    return { deleted: true };
   },
 });

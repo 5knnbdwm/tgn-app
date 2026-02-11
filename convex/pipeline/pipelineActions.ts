@@ -14,6 +14,12 @@ type PublicationPage = {
   pageWidth: number;
   pageHeight: number;
 };
+type PublicationMetadataPage = {
+  page_number: number;
+  page_width: number;
+  page_height: number;
+  word_boxes: Array<{ text: string; bbox: [number, number, number, number] }>;
+};
 type PipelineResult = { createdLeadCount: number };
 type PageResult =
   | { ok: true; createdLeadCount: number; pageNumber: number }
@@ -141,6 +147,44 @@ function wordsForSegment(
     .map((word) => ({ text: word.text, bbox: assertBbox(word.bbox) }));
 }
 
+async function updatePublicationMetadataFromOcr(
+  ctx: ActionCtx,
+  args: {
+    publicationId: Id<"publications">;
+    fallbackName: string;
+    pages: PublicationMetadataPage[];
+  },
+) {
+  if (args.pages.length === 0) return;
+  try {
+    const metadata = await postPipelineWithRetry<{
+      publication_name?: string | null;
+      publication_date?: string | null;
+    }>("/publication/metadata", {
+      pages: args.pages,
+      fallback_name: args.fallbackName,
+    });
+
+    const publicationName = metadata.publication_name?.trim();
+    const publicationDate = metadata.publication_date?.trim();
+    if (!publicationName && !publicationDate) return;
+
+    await ctx.runMutation(
+      internal.publications.publicationMutations.updatePublicationMetadata,
+      {
+        publicationId: args.publicationId,
+        publicationName: publicationName || undefined,
+        publicationDate: publicationDate || undefined,
+      },
+    );
+  } catch (error) {
+    console.warn("[pipeline] publication metadata extraction failed", {
+      publicationId: args.publicationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function runPipeline(
   ctx: ActionCtx,
   publicationId: Id<"publications">,
@@ -158,11 +202,19 @@ async function runPipeline(
     internal.publications.publicationMutations.updatePublicationStatus,
     { publicationId, status: "LEAD_PROCESSING" },
   );
+  const publication = (await ctx.runQuery(
+    internal.publications.publicationQueries.getPublicationInternal,
+    { publicationId },
+  )) as { name: string } | null;
+  if (!publication) {
+    throw new ConvexError("Publication not found");
+  }
 
   const pages = (await ctx.runQuery(
     internal.publications.publicationQueries.getPublicationPagesInternal,
     { publicationId },
   )) as PublicationPage[];
+  const metadataPages: PublicationMetadataPage[] = [];
   const pageResults = await mapWithConcurrency<PublicationPage, PageResult>(
     pages,
     pageConcurrency,
@@ -190,6 +242,32 @@ async function runPipeline(
             word.bbox.length === 4 &&
             typeof word.text === "string",
         );
+        if (page.pageNumber <= 2) {
+          const metadataWordBoxes = wordBoxes
+            .filter((word) => {
+              const [x1, y1, x2, y2] = word.bbox as [
+                number,
+                number,
+                number,
+                number,
+              ];
+              return (
+                [x1, y1, x2, y2].every(Number.isFinite) &&
+                x2 > x1 &&
+                y2 > y1
+              );
+            })
+            .map((word) => ({
+              text: word.text,
+              bbox: word.bbox as [number, number, number, number],
+            }));
+          metadataPages.push({
+            page_number: page.pageNumber,
+            page_width: page.pageWidth,
+            page_height: page.pageHeight,
+            word_boxes: metadataWordBoxes.slice(0, 1200),
+          });
+        }
 
         await ctx.runMutation(
           internal.publications.publicationMutations.upsertPageOcr,
@@ -361,6 +439,11 @@ async function runPipeline(
     (sum: number, pageResult: PageResult) => sum + pageResult.createdLeadCount,
     0,
   );
+  await updatePublicationMetadataFromOcr(ctx, {
+    publicationId,
+    fallbackName: publication.name,
+    pages: metadataPages.sort((a, b) => a.page_number - b.page_number),
+  });
 
   await ctx.runMutation(
     internal.publications.publicationMutations.finalizeLeadProcessing,
