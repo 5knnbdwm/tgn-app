@@ -108,8 +108,8 @@ async function signOut() {
             :title="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
             @click="toggleColorMode"
           >
-            <Sun v-if="isDarkMode" class="size-4" />
-            <Moon v-else class="size-4" />
+            <Sun v-show="isDarkMode" class="size-4" />
+            <Moon v-show="!isDarkMode" class="size-4" />
           </button>
 
           <button
