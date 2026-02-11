@@ -445,26 +445,28 @@ watch(
               | Editor
             </p>
             <div class="mt-1 flex min-w-0 items-center gap-2">
-              <h1
-                class="min-w-0 flex-1 truncate text-xl font-semibold leading-tight tracking-tight sm:text-2xl"
-                :title="
-                  sidebar?.publication.metadata?.publicationName ??
-                  sidebar?.publication.name ??
-                  'Publication'
-                "
-              >
-                {{
-                  sidebar?.publication.metadata?.publicationName ??
-                  sidebar?.publication.name ??
-                  "Publication"
-                }}
-              </h1>
-              <span
-                v-if="publicationStatus"
-                :class="`inline-flex shrink-0 rounded-md border px-2 py-0.5 text-[11px] tracking-wide ${statusClass(publicationStatus)}`"
-              >
-                {{ prettyStatus(publicationStatus) }}
-              </span>
+              <div class="inline-flex min-w-0 max-w-full items-center gap-2">
+                <h1
+                  class="min-w-0 max-w-full truncate text-xl font-semibold leading-tight tracking-tight sm:text-2xl"
+                  :title="
+                    sidebar?.publication.metadata?.publicationName ??
+                    sidebar?.publication.name ??
+                    'Publication'
+                  "
+                >
+                  {{
+                    sidebar?.publication.metadata?.publicationName ??
+                    sidebar?.publication.name ??
+                    "Publication"
+                  }}
+                </h1>
+                <span
+                  v-if="publicationStatus"
+                  :class="`inline-flex shrink-0 rounded-md border px-2 py-0.5 text-[11px] tracking-wide ${statusClass(publicationStatus)}`"
+                >
+                  {{ prettyStatus(publicationStatus) }}
+                </span>
+              </div>
               <Button
                 v-if="canRetryProcessing"
                 size="icon-xs"
