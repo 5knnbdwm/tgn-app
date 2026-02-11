@@ -22,10 +22,11 @@ export const leadCategoryValidator = v.union(
   v.literal("MISSED_LEAD"),
 );
 
-export const leadTagValidator = v.union(
-  v.literal("WRONG_PREDICTION"),
-  v.literal("ERP_IMPORTED"),
-  v.literal("OTHER"),
+export const leadTagValidator = v.string();
+
+export const leadReviewStatusValidator = v.union(
+  v.literal("CONFIRMED"),
+  v.literal("DENIED"),
 );
 
 export const leadSourceValidator = v.union(
@@ -49,7 +50,8 @@ export type PublicationStatus =
   | "LEADS_FOUND"
   | "CONFIRMED";
 
-export type LeadTag = "WRONG_PREDICTION" | "ERP_IMPORTED" | "OTHER";
+export type LeadTag = string;
+export type LeadReviewStatus = "CONFIRMED" | "DENIED";
 
 export function nowTs() {
   return Date.now();

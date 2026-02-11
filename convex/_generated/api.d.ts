@@ -14,6 +14,7 @@ import type * as http from "../http.js";
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as model from "../model.js";
 import type * as pipeline_pipelineActions from "../pipeline/pipelineActions.js";
+import type * as publications_leadReviewOptionMutations from "../publications/leadReviewOptionMutations.js";
 import type * as publications_publicationActions from "../publications/publicationActions.js";
 import type * as publications_publicationMutations from "../publications/publicationMutations.js";
 import type * as publications_publicationQueries from "../publications/publicationQueries.js";
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   "lib/permissions": typeof lib_permissions;
   model: typeof model;
   "pipeline/pipelineActions": typeof pipeline_pipelineActions;
+  "publications/leadReviewOptionMutations": typeof publications_leadReviewOptionMutations;
   "publications/publicationActions": typeof publications_publicationActions;
   "publications/publicationMutations": typeof publications_publicationMutations;
   "publications/publicationQueries": typeof publications_publicationQueries;

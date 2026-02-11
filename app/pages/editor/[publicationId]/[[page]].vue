@@ -2,6 +2,7 @@
 import { api } from "~~/convex/_generated/api";
 import type { Id } from "~~/convex/_generated/dataModel";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -9,7 +10,16 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  X,
 } from "lucide-vue-next";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "vue-sonner";
 
 definePageMeta({
@@ -51,12 +61,18 @@ const { mutate: retryPublicationProcessing } = useConvexMutation(
 const { mutate: createMissedLead } = useConvexMutation(
   api.publications.publicationMutations.createMissedLead,
 );
+const { mutate: reviewAiLead } = useConvexMutation(
+  api.publications.publicationMutations.reviewAiLead,
+);
+
+type AiLeadReviewDecision = "CONFIRMED" | "DENIED";
 
 const selectedLeadId = ref<Id<"leads"> | null>(null);
 const expandedPageNumber = ref<number | null>(null);
 const retryingProcessing = ref(false);
 const drawModePageNumber = ref<number | null>(null);
 const creatingMissedLead = ref(false);
+const reviewingLeadId = ref<Id<"leads"> | null>(null);
 const leadSidebarScrollContainer = ref<HTMLElement | null>(null);
 const leadPageSectionRefs = ref<Record<number, HTMLElement | null>>({});
 const sidebar = computed(() => sidebarData.data.value);
@@ -95,6 +111,27 @@ const pageLeadEnrichmentsData = useConvexQuery(
       : "skip",
   ),
 );
+const leadReviewOptionsData = useConvexQuery(
+  api.publications.leadReviewOptionMutations.listActiveLeadReviewOptions,
+  {},
+);
+const reviewOptionsByDecision = computed(
+  () =>
+    leadReviewOptionsData.data.value ?? {
+      CONFIRMED: [],
+      DENIED: [],
+    },
+);
+const reviewOptionLabelByTag = computed(() => {
+  const labels: Record<string, string> = {};
+  for (const option of reviewOptionsByDecision.value.CONFIRMED) {
+    labels[option.tag] = option.label;
+  }
+  for (const option of reviewOptionsByDecision.value.DENIED) {
+    labels[option.tag] = option.label;
+  }
+  return labels;
+});
 const leadEnrichmentsByLeadId = computed(() => {
   type LeadEnrichment = NonNullable<
     NonNullable<typeof pageLeadEnrichmentsData.data.value>[number]
@@ -276,6 +313,65 @@ function confidenceLabel(score: number) {
   return `${Math.round(score)}% conf.`;
 }
 
+function formatLeadTag(tag: string) {
+  return reviewOptionLabelByTag.value[tag] ?? tag;
+}
+
+function optionsForLeadDecision(decision: AiLeadReviewDecision) {
+  return reviewOptionsByDecision.value[decision].map((option) => ({
+    value: option.tag,
+    label: option.label,
+  }));
+}
+
+async function applyLeadReview(
+  leadId: Id<"leads">,
+  decision: AiLeadReviewDecision,
+  tag: string,
+) {
+  if (reviewingLeadId.value) return;
+  reviewingLeadId.value = leadId;
+  try {
+    await reviewAiLead({
+      leadId,
+      decision,
+      tag,
+    });
+  } catch {
+    toast.error("Unable to save lead decision.");
+  } finally {
+    reviewingLeadId.value = null;
+  }
+}
+
+async function chooseLeadDecision(
+  lead: {
+    _id: Id<"leads">;
+  },
+  decision: AiLeadReviewDecision,
+) {
+  const options = reviewOptionsByDecision.value[decision];
+  const onlyOption = options.length === 1 ? options[0] : null;
+  if (onlyOption) {
+    await applyLeadReview(lead._id, decision, onlyOption.tag);
+  }
+}
+
+async function clearLeadReview(leadId: Id<"leads">) {
+  if (reviewingLeadId.value) return;
+  reviewingLeadId.value = leadId;
+  try {
+    await reviewAiLead({
+      leadId,
+      decision: "CLEAR",
+    });
+  } catch {
+    toast.error("Unable to clear lead decision.");
+  } finally {
+    reviewingLeadId.value = null;
+  }
+}
+
 async function copyLeadText(value?: string) {
   const text = value?.trim();
   if (!text) return;
@@ -402,7 +498,9 @@ watch(
                     <ChevronLeft class="size-3.5" />
                     Prev Page
                   </span>
-                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px] dark:bg-sky-900/80 dark:text-sky-100">
+                  <span
+                    class="rounded-sm bg-sky-100 px-1.5 text-[11px] dark:bg-sky-900/80 dark:text-sky-100"
+                  >
                     {{ previousPage ?? "-" }}
                   </span>
                 </Button>
@@ -416,7 +514,9 @@ watch(
                     Next Page
                     <ChevronRight class="size-3.5" />
                   </span>
-                  <span class="rounded-sm bg-sky-100 px-1.5 text-[11px] dark:bg-sky-900/80 dark:text-sky-100">
+                  <span
+                    class="rounded-sm bg-sky-100 px-1.5 text-[11px] dark:bg-sky-900/80 dark:text-sky-100"
+                  >
                     {{ nextPage ?? "-" }}
                   </span>
                 </Button>
@@ -442,7 +542,9 @@ watch(
                     <ChevronLeft class="size-3.5" />
                     Prev Lead
                   </span>
-                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px] dark:bg-emerald-900/80 dark:text-emerald-100">
+                  <span
+                    class="rounded-sm bg-emerald-100 px-1.5 text-[11px] dark:bg-emerald-900/80 dark:text-emerald-100"
+                  >
                     {{ previousLeadPage ?? "-" }}
                   </span>
                 </Button>
@@ -456,7 +558,9 @@ watch(
                     Next Lead
                     <ChevronRight class="size-3.5" />
                   </span>
-                  <span class="rounded-sm bg-emerald-100 px-1.5 text-[11px] dark:bg-emerald-900/80 dark:text-emerald-100">
+                  <span
+                    class="rounded-sm bg-emerald-100 px-1.5 text-[11px] dark:bg-emerald-900/80 dark:text-emerald-100"
+                  >
                     {{ nextLeadPage ?? "-" }}
                   </span>
                 </Button>
@@ -683,6 +787,125 @@ watch(
                     <p v-else class="text-muted-foreground mt-1 text-xs">
                       Loading enrichment...
                     </p>
+
+                    <div class="mt-2 rounded-md border border-border/70 p-2">
+                      <p
+                        class="text-muted-foreground text-[11px] font-medium uppercase tracking-[0.08em]"
+                      >
+                        Lead Review
+                      </p>
+                      <div
+                        v-if="!(lead.reviewStatus && lead.tag)"
+                        class="mt-1 flex flex-wrap gap-1.5"
+                      >
+                        <template
+                          v-if="optionsForLeadDecision('CONFIRMED').length <= 1"
+                        >
+                          <Button
+                            size="icon-sm"
+                            variant="success"
+                            title="Confirm lead"
+                            aria-label="Confirm lead"
+                            :disabled="reviewingLeadId === lead._id"
+                            @click="chooseLeadDecision(lead, 'CONFIRMED')"
+                          >
+                            <Check class="size-3.5" />
+                          </Button>
+                        </template>
+                        <DropdownMenu v-else>
+                          <DropdownMenuTrigger as-child>
+                            <Button
+                              size="icon-sm"
+                              variant="success"
+                              title="Confirm lead"
+                              aria-label="Confirm lead"
+                              :disabled="reviewingLeadId === lead._id"
+                            >
+                              <Check class="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" class="w-44">
+                            <DropdownMenuLabel>Confirm tag</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              v-for="option in optionsForLeadDecision(
+                                'CONFIRMED',
+                              )"
+                              :key="`${lead._id}-confirm-${option.value}`"
+                              @select="
+                                () =>
+                                  void applyLeadReview(
+                                    lead._id,
+                                    'CONFIRMED',
+                                    option.value,
+                                  )
+                              "
+                            >
+                              {{ option.label }}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <template
+                          v-if="optionsForLeadDecision('DENIED').length <= 1"
+                        >
+                          <Button
+                            size="icon-sm"
+                            variant="error"
+                            title="Deny lead"
+                            aria-label="Deny lead"
+                            :disabled="reviewingLeadId === lead._id"
+                            @click="chooseLeadDecision(lead, 'DENIED')"
+                          >
+                            <X class="size-3.5" />
+                          </Button>
+                        </template>
+                        <DropdownMenu v-else>
+                          <DropdownMenuTrigger as-child>
+                            <Button
+                              size="icon-sm"
+                              variant="error"
+                              title="Deny lead"
+                              aria-label="Deny lead"
+                              :disabled="reviewingLeadId === lead._id"
+                            >
+                              <X class="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" class="w-44">
+                            <DropdownMenuItem
+                              v-for="option in optionsForLeadDecision('DENIED')"
+                              :key="`${lead._id}-deny-${option.value}`"
+                              @select="
+                                () =>
+                                  void applyLeadReview(
+                                    lead._id,
+                                    'DENIED',
+                                    option.value,
+                                  )
+                              "
+                            >
+                              {{ option.label }}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+
+                      <button
+                        v-if="lead.reviewStatus && lead.tag"
+                        type="button"
+                        class="text-muted-foreground mt-2 text-[11px]"
+                        :class="
+                          lead.reviewStatus === 'CONFIRMED'
+                            ? 'inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-emerald-900 hover:bg-emerald-200'
+                            : 'inline-flex items-center rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-red-900 hover:bg-red-200'
+                        "
+                        title="Click to reset tag"
+                        @click="clearLeadReview(lead._id)"
+                      >
+                        {{ formatLeadTag(lead.tag) }}
+                      </button>
+                    </div>
                   </template>
                 </article>
               </div>

@@ -31,6 +31,7 @@ const navItems = computed(() => {
 
   if (permissionContext.value?.role === "admin") {
     items.push({ label: "Users", to: "/admin/users" });
+    items.push({ label: "Lead Tags", to: "/admin/lead-tags" });
   }
 
   return items;

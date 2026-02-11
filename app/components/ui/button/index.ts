@@ -19,6 +19,10 @@ export const buttonVariants = cva(
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
         auth: "rounded-xl border-0 bg-[linear-gradient(105deg,#c24e2f_0%,#90331f_100%)] text-white shadow-[0_10px_22px_rgba(130,47,29,0.24)] hover:translate-y-[-1px] hover:shadow-[0_14px_24px_rgba(130,47,29,0.3)]",
+        success: "bg-green-500 text-white hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700",
+        warning: "bg-yellow-500 text-white hover:bg-yellow-600 dark:bg-yellow-600 dark:hover:bg-yellow-700",
+        error: "bg-red-500 text-white hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700",
+        info: "bg-blue-500 text-white hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",

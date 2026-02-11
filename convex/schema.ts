@@ -116,14 +116,13 @@ export default defineSchema({
     prediction: v.optional(
       v.union(v.literal("positive"), v.literal("negative")),
     ),
-    tag: v.optional(
-      v.union(
-        v.literal("WRONG_PREDICTION"),
-        v.literal("ERP_IMPORTED"),
-        v.literal("OTHER"),
-      ),
-    ),
+    tag: v.optional(v.string()),
     tagReason: v.optional(v.string()),
+    reviewStatus: v.optional(
+      v.union(v.literal("CONFIRMED"), v.literal("DENIED")),
+    ),
+    reviewedByUserId: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
     source: v.union(
       v.literal("AI_PIPELINE"),
       v.literal("MANUAL_EDITOR"),
@@ -218,10 +217,14 @@ export default defineSchema({
   //   createdAt: v.number(),
   // }).index("by_jobId_createdAt", ["jobId", "createdAt"]),
 
-  // leadTagReasons: defineTable({
-  //   tag: v.string(),
-  //   reason: v.string(),
-  //   isActive: v.boolean(),
-  //   createdAt: v.number(),
-  // }).index("by_tag", ["tag"]),
+  leadReviewOptions: defineTable({
+    decision: v.union(v.literal("CONFIRMED"), v.literal("DENIED")),
+    tag: v.string(),
+    label: v.string(),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_decision", ["decision"])
+    .index("by_decision_tag", ["decision", "tag"]),
 });
