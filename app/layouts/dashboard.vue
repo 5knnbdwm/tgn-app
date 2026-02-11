@@ -15,6 +15,16 @@ const user = computed(() => userQuery.data.value);
 const colorMode = useColorMode();
 const route = useRoute();
 
+watch(
+  [isPending, isAuthenticated],
+  async ([pending, authenticated]) => {
+    if (!pending && !authenticated) {
+      await navigateTo("/signin");
+    }
+  },
+  { immediate: true },
+);
+
 const isDarkMode = computed(() => colorMode.value === "dark");
 const navItems = computed(() => {
   const items = [{ label: "Publications", to: "/" }];

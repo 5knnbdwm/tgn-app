@@ -1,13 +1,21 @@
-export default defineNuxtRouteMiddleware(() => {
+export default defineNuxtRouteMiddleware(async (to) => {
   const { isAuthenticated, isPending } = useConvexAuth();
 
-  // Wait for auth to load
   if (isPending.value) {
-    return;
+    await new Promise<void>((resolve) => {
+      const stop = watch(isPending, (pending) => {
+        if (!pending) {
+          stop();
+          resolve();
+        }
+      });
+    });
   }
 
-  // Redirect to login if not authenticated
   if (!isAuthenticated.value) {
-    return navigateTo("/signin");
+    return navigateTo({
+      path: "/signin",
+      query: to.fullPath && to.fullPath !== "/" ? { redirect: to.fullPath } : {},
+    });
   }
 });
