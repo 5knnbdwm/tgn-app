@@ -43,5 +43,5 @@ Publication metadata extraction can use an OpenRouter model as fallback when
 heuristics are low confidence.
 
 - `OPENROUTER_API_KEY`
-- `OPENROUTER_MODEL` (default: `qwen/qwen2.5-7b-instruct`)
+- `OPENROUTER_MODEL` (used by `/classify/lead`, `/enrich/lead`, `/publication/metadata`)
 - `OPENROUTER_TIMEOUT_SECONDS` (default: `15`)
