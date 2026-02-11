@@ -433,9 +433,9 @@ watch(
         class="rounded-2xl border border-border/70 bg-card/90 p-4 shadow-sm"
       >
         <div
-          class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
+          class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between"
         >
-          <div>
+          <div class="min-w-0 flex-1">
             <p
               class="text-muted-foreground text-xs uppercase tracking-[0.14em]"
             >
@@ -444,8 +444,15 @@ watch(
               >
               | Editor
             </p>
-            <div class="mt-1 flex flex-wrap items-center gap-2">
-              <h1 class="text-xl font-semibold tracking-tight sm:text-2xl">
+            <div class="mt-1 flex min-w-0 items-center gap-2">
+              <h1
+                class="min-w-0 flex-1 truncate text-xl font-semibold leading-tight tracking-tight sm:text-2xl"
+                :title="
+                  sidebar?.publication.metadata?.publicationName ??
+                  sidebar?.publication.name ??
+                  'Publication'
+                "
+              >
                 {{
                   sidebar?.publication.metadata?.publicationName ??
                   sidebar?.publication.name ??
@@ -454,7 +461,7 @@ watch(
               </h1>
               <span
                 v-if="publicationStatus"
-                :class="`inline-flex rounded-md border px-2 py-0.5 text-[11px] tracking-wide ${statusClass(publicationStatus)}`"
+                :class="`inline-flex shrink-0 rounded-md border px-2 py-0.5 text-[11px] tracking-wide ${statusClass(publicationStatus)}`"
               >
                 {{ prettyStatus(publicationStatus) }}
               </span>
@@ -462,7 +469,7 @@ watch(
                 v-if="canRetryProcessing"
                 size="icon-xs"
                 variant="outline"
-                class="size-6"
+                class="size-6 shrink-0"
                 :disabled="retryingProcessing"
                 aria-label="Retry processing"
                 @click="retryProcessing"
@@ -478,7 +485,7 @@ watch(
             </p>
           </div>
 
-          <div class="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
+          <div class="grid w-full gap-2 sm:grid-cols-2 xl:w-auto xl:flex-shrink-0">
             <section
               class="rounded-xl border border-sky-200/70 bg-gradient-to-r from-sky-50/70 to-transparent p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:border-sky-900/70 dark:from-sky-950/55 dark:shadow-[inset_0_1px_0_rgba(56,189,248,0.12)]"
             >
@@ -490,11 +497,11 @@ watch(
               <ButtonGroup class="mt-1 w-full">
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50 dark:border-sky-900/80 dark:bg-sky-950/65 dark:text-sky-100 dark:hover:bg-sky-900/60"
+                  class="h-8 min-w-0 flex-1 justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50 dark:border-sky-900/80 dark:bg-sky-950/65 dark:text-sky-100 dark:hover:bg-sky-900/60"
                   :disabled="!previousPage"
                   @click="previousPage && setPage(previousPage)"
                 >
-                  <span class="inline-flex items-center gap-1.5 text-xs">
+                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
                     <ChevronLeft class="size-3.5" />
                     Prev Page
                   </span>
@@ -506,11 +513,11 @@ watch(
                 </Button>
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50 dark:border-sky-900/80 dark:bg-sky-950/65 dark:text-sky-100 dark:hover:bg-sky-900/60"
+                  class="h-8 min-w-0 flex-1 justify-between border-sky-200/80 bg-white/90 px-2.5 text-sky-950 hover:bg-sky-50 dark:border-sky-900/80 dark:bg-sky-950/65 dark:text-sky-100 dark:hover:bg-sky-900/60"
                   :disabled="!nextPage"
                   @click="nextPage && setPage(nextPage)"
                 >
-                  <span class="inline-flex items-center gap-1.5 text-xs">
+                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
                     Next Page
                     <ChevronRight class="size-3.5" />
                   </span>
@@ -534,11 +541,11 @@ watch(
               <ButtonGroup class="mt-1 w-full">
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-900/80 dark:bg-emerald-950/65 dark:text-emerald-100 dark:hover:bg-emerald-900/60"
+                  class="h-8 min-w-0 flex-1 justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-900/80 dark:bg-emerald-950/65 dark:text-emerald-100 dark:hover:bg-emerald-900/60"
                   :disabled="!previousLeadPage"
                   @click="previousLeadPage && setPage(previousLeadPage)"
                 >
-                  <span class="inline-flex items-center gap-1.5 text-xs">
+                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
                     <ChevronLeft class="size-3.5" />
                     Prev Lead
                   </span>
@@ -550,11 +557,11 @@ watch(
                 </Button>
                 <Button
                   variant="outline"
-                  class="h-8 min-w-[132px] justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-900/80 dark:bg-emerald-950/65 dark:text-emerald-100 dark:hover:bg-emerald-900/60"
+                  class="h-8 min-w-0 flex-1 justify-between border-emerald-200/80 bg-white/90 px-2.5 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-900/80 dark:bg-emerald-950/65 dark:text-emerald-100 dark:hover:bg-emerald-900/60"
                   :disabled="!nextLeadPage"
                   @click="nextLeadPage && setPage(nextLeadPage)"
                 >
-                  <span class="inline-flex items-center gap-1.5 text-xs">
+                  <span class="inline-flex min-w-0 items-center gap-1.5 text-xs">
                     Next Lead
                     <ChevronRight class="size-3.5" />
                   </span>
