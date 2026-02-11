@@ -10,6 +10,19 @@ type PdfProcessResult = {
   page: number;
 };
 
+function getPublicationR2Prefix(fileKey: string) {
+  const sourceMarker = "/source";
+  const sourceIndex = fileKey.indexOf(sourceMarker);
+  if (sourceIndex > 0) {
+    return fileKey.slice(0, sourceIndex);
+  }
+  return fileKey;
+}
+
+function pageImageKey(prefix: string, pageNumber: number) {
+  return `${prefix}/pages/page-${String(pageNumber).padStart(4, "0")}.webp`;
+}
+
 function getPipelineServiceConfig() {
   const baseUrl = (process.env.PIPELINE_SERVICE_URL || "").trim();
   if (!baseUrl) {
@@ -105,6 +118,7 @@ export const enqueuePublicationProcessing = internalAction({
     }),
   ),
   handler: async (ctx, args) => {
+    const generatedPageKeys = new Set<string>();
     try {
       const pdfUrl = await r2.getUrl(args.fileKey, {
         expiresIn: 60 * 60,
@@ -116,6 +130,7 @@ export const enqueuePublicationProcessing = internalAction({
         "PAGE_MUTATION_CONCURRENCY",
         8,
       );
+      const publicationPrefix = getPublicationR2Prefix(args.fileKey);
 
       const analyze = await withRetry("analyze", maxAttempts, () =>
         postPipeline<{ page_count?: number; pageCount?: number }>(
@@ -139,10 +154,12 @@ export const enqueuePublicationProcessing = internalAction({
         const endPage = Math.min(pageCount, startPage + chunkSize - 1);
         const expectedChunkPages = endPage - startPage + 1;
         const uploads = await Promise.all(
-          Array.from(
-            { length: expectedChunkPages },
-            async () => await r2.generateUploadUrl(),
-          ),
+          Array.from({ length: expectedChunkPages }, async (_, idx) => {
+            const pageNumber = startPage + idx;
+            const key = pageImageKey(publicationPrefix, pageNumber);
+            generatedPageKeys.add(key);
+            return await r2.generateUploadUrl(key);
+          }),
         );
 
         const processedChunk = await withRetry(
@@ -226,6 +243,15 @@ export const enqueuePublicationProcessing = internalAction({
 
       return sortedResults;
     } catch (error) {
+      await Promise.allSettled(
+        Array.from(generatedPageKeys).map((key) => r2.deleteObject(ctx, key)),
+      );
+      await ctx.runMutation(
+        internal.publications.publicationMutations.resetPublicationPages,
+        {
+          publicationId: args.publicationId,
+        },
+      );
       console.error("Error processing publication", error);
       await ctx.runMutation(
         internal.publications.publicationMutations.updatePublicationStatus,

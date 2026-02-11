@@ -35,8 +35,8 @@ const {
   { initialNumItems: 20 },
 );
 
-const { mutate: generateUploadUrl } = useConvexMutation(
-  api.files.generateUploadUrl,
+const { mutate: generatePublicationUploadUrl } = useConvexMutation(
+  api.files.generatePublicationUploadUrl,
 );
 const { mutate: syncMetadata } = useConvexMutation(
   api.files.syncMetadata,
@@ -239,7 +239,9 @@ async function onInputChange(event: Event) {
     }
 
     try {
-      const { key, url } = await generateUploadUrl({});
+      const { key, url } = await generatePublicationUploadUrl({
+        fileName: file.name,
+      });
       const uploadResponse = await fetch(url, {
         method: "PUT",
         headers: {

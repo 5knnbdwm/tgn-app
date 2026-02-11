@@ -18,6 +18,7 @@ export const permissions = {
   "publication.read": { roles: ["admin", "member", "viewer"] },
   "publication.create": { roles: ["admin", "member"] },
   "publication.retry": { roles: ["admin", "member"] },
+  "publication.delete": { roles: ["admin", "member"] },
   "lead.manual.create": { roles: ["admin", "member"] },
   "user.read": { roles: ["admin"] },
   "user.create": { roles: ["admin"] },
