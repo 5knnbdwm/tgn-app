@@ -1,6 +1,8 @@
 import re
 import json
 import os
+import logging
+import time
 
 from fastapi import APIRouter
 import requests
@@ -15,6 +17,7 @@ from app.models import (
 )
 
 router = APIRouter()
+logger = logging.getLogger("pipeline.ai")
 
 POSITIVE_HINTS = {
     "award",
@@ -52,11 +55,14 @@ def _strip_code_fence(value: str) -> str:
     return text.strip()
 
 
-def _call_openrouter_json(system_prompt: str, user_prompt: str) -> dict | None:
+def _call_openrouter_json(operation: str, system_prompt: str, user_prompt: str) -> dict | None:
     api_key, model = _openrouter_config()
     if not api_key or not model:
+        logger.info("[pipeline/ai] operation=%s skipped reason=missing_openrouter_config", operation)
         return None
 
+    timeout_seconds = _openrouter_timeout_seconds()
+    started_at = time.perf_counter()
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -73,10 +79,25 @@ def _call_openrouter_json(system_prompt: str, user_prompt: str) -> dict | None:
                 "temperature": 0,
                 "response_format": {"type": "json_object"},
             },
-            timeout=_openrouter_timeout_seconds(),
+            timeout=timeout_seconds,
         )
         response.raise_for_status()
         payload = response.json()
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        usage = payload.get("usage", {}) if isinstance(payload, dict) else {}
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+        logger.info(
+            "[pipeline/ai] operation=%s model=%s status=%s duration_ms=%.2f prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+            operation,
+            model,
+            response.status_code,
+            elapsed_ms,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+        )
         content = (
             payload.get("choices", [{}])[0]
             .get("message", {})
@@ -84,7 +105,16 @@ def _call_openrouter_json(system_prompt: str, user_prompt: str) -> dict | None:
         )
         parsed = json.loads(_strip_code_fence(content))
         return parsed if isinstance(parsed, dict) else None
-    except Exception:
+    except Exception as error:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.warning(
+            "[pipeline/ai] operation=%s model=%s failed duration_ms=%.2f timeout_s=%s error=%s",
+            operation,
+            model,
+            elapsed_ms,
+            timeout_seconds,
+            str(error),
+        )
         return None
 
 
@@ -104,7 +134,7 @@ def _classify_lead_with_llm(text: str) -> tuple[bool, float, str] | None:
         "ads/promotions, or weak/unclear context.\n\n"
         f"ARTICLE_TEXT:\n{clean_text[:12000]}"
     )
-    parsed = _call_openrouter_json(system_prompt, user_prompt)
+    parsed = _call_openrouter_json("classify_lead", system_prompt, user_prompt)
     if not parsed:
         return None
 
@@ -140,7 +170,7 @@ def _enrich_lead_with_llm(text: str) -> tuple[str, list[str], list[str]] | None:
         "- Do not invent entities.\n\n"
         f"ARTICLE_TEXT:\n{clean_text[:12000]}"
     )
-    parsed = _call_openrouter_json(system_prompt, user_prompt)
+    parsed = _call_openrouter_json("enrich_lead", system_prompt, user_prompt)
     if not parsed:
         return None
 

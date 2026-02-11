@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import logging
+import time
 from typing import Any
 
 import requests
@@ -9,6 +11,7 @@ from fastapi import APIRouter
 from app.models import PublicationMetadataPage, PublicationMetadataRequest, PublicationMetadataResponse, WordBox
 
 router = APIRouter()
+logger = logging.getLogger("pipeline.ai")
 
 UUID_LIKE_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -205,6 +208,9 @@ def _extract_publication_metadata_with_llm(
 ) -> tuple[str | None, str | None]:
     api_key, model = _openrouter_config()
     if not api_key:
+        logger.info(
+            "[pipeline/ai] operation=extract_publication_metadata skipped reason=missing_openrouter_api_key"
+        )
         return None, None
 
     digest = _build_llm_page_digest(pages)
@@ -229,6 +235,8 @@ def _extract_publication_metadata_with_llm(
         "- No extra keys, no prose."
     )
 
+    timeout_seconds = _openrouter_timeout_seconds()
+    started_at = time.perf_counter()
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -245,10 +253,24 @@ def _extract_publication_metadata_with_llm(
                 "temperature": 0,
                 "response_format": {"type": "json_object"},
             },
-            timeout=_openrouter_timeout_seconds(),
+            timeout=timeout_seconds,
         )
         response.raise_for_status()
         data = response.json()
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        usage = data.get("usage", {}) if isinstance(data, dict) else {}
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+        logger.info(
+            "[pipeline/ai] operation=extract_publication_metadata model=%s status=%s duration_ms=%.2f prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+            model,
+            response.status_code,
+            elapsed_ms,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+        )
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         parsed = json.loads(_strip_code_fence(content))
 
@@ -272,7 +294,15 @@ def _extract_publication_metadata_with_llm(
         if confidence_num < 0.6:
             return None, None
         return publication_name or None, publication_date or None
-    except Exception:
+    except Exception as error:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.warning(
+            "[pipeline/ai] operation=extract_publication_metadata model=%s failed duration_ms=%.2f timeout_s=%s error=%s",
+            model,
+            elapsed_ms,
+            timeout_seconds,
+            str(error),
+        )
         return None, None
 
 
