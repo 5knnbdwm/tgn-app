@@ -1,10 +1,12 @@
 import cv2
+import logging
 from fastapi import APIRouter
 
 from app.models import Segment, SegmentPageRequest, SegmentPageResponse
 from app.services.http import download_image
 
 router = APIRouter()
+logger = logging.getLogger("pipeline.segment")
 
 
 @router.post("/segment/page", response_model=SegmentPageResponse)
@@ -19,13 +21,18 @@ def segment_page(payload: SegmentPageRequest) -> SegmentPageResponse:
 
     segments: list[Segment] = []
     min_area = max(12000, (payload.page_width * payload.page_height) // 150)
+    filtered_small_contours = 0
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
         if w * h < min_area:
+            filtered_small_contours += 1
             continue
         segments.append(Segment(bbox=[float(x), float(y), float(x + w), float(y + h)]))
 
+    fallback_used = False
+    skip_reason: str | None = None
     if not segments and payload.word_boxes:
+        fallback_used = True
         xs = [w.bbox[0] for w in payload.word_boxes] + [w.bbox[2] for w in payload.word_boxes]
         ys = [w.bbox[1] for w in payload.word_boxes] + [w.bbox[3] for w in payload.word_boxes]
         segments.append(
@@ -38,4 +45,26 @@ def segment_page(payload: SegmentPageRequest) -> SegmentPageResponse:
                 ],
             ),
         )
-    return SegmentPageResponse(segments=segments)
+        skip_reason = "all_contours_below_min_area;used_word_box_fallback"
+    elif not segments:
+        skip_reason = "all_contours_below_min_area;no_word_boxes_for_fallback"
+
+    logger.info(
+        "[pipeline/segment] publication_id=%s page_number=%s total_contours=%s filtered_small=%s min_area=%s segments=%s fallback_used=%s skip_reason=%s",
+        payload.publication_id,
+        payload.page_number,
+        len(contours),
+        filtered_small_contours,
+        min_area,
+        len(segments),
+        fallback_used,
+        skip_reason,
+    )
+    return SegmentPageResponse(
+        segments=segments,
+        total_contours=len(contours),
+        filtered_small_contours=filtered_small_contours,
+        min_area=min_area,
+        fallback_used=fallback_used,
+        skip_reason=skip_reason,
+    )

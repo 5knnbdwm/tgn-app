@@ -87,6 +87,11 @@ class SegmentPageRequest(BaseModel):
 
 class SegmentPageResponse(BaseModel):
     segments: list[Segment]
+    total_contours: int = 0
+    filtered_small_contours: int = 0
+    min_area: int = 0
+    fallback_used: bool = False
+    skip_reason: str | None = None
 
 
 class ClassifyLeadRequest(BaseModel):

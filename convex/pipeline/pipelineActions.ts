@@ -286,6 +286,11 @@ async function runPipeline(
 
         const segmentResult = await postPipelineWithRetry<{
           segments?: Segment[];
+          total_contours?: number;
+          filtered_small_contours?: number;
+          min_area?: number;
+          fallback_used?: boolean;
+          skip_reason?: string | null;
         }>("/segment/page", {
           publication_id: publicationId,
           page_number: page.pageNumber,
@@ -298,6 +303,19 @@ async function runPipeline(
         const segments = (segmentResult.segments ?? []).filter(
           (segment) => Array.isArray(segment.bbox) && segment.bbox.length === 4,
         );
+        if (segments.length === 0) {
+          console.info("[pipeline] no segments generated", {
+            publicationId,
+            pageNumber: page.pageNumber,
+            reason:
+              segmentResult.skip_reason ?? "segment_service_returned_no_segments",
+            totalContours: segmentResult.total_contours ?? null,
+            filteredSmallContours:
+              segmentResult.filtered_small_contours ?? null,
+            minArea: segmentResult.min_area ?? null,
+            fallbackUsed: segmentResult.fallback_used ?? null,
+          });
+        }
 
         const segmentLeadCounts = await mapWithConcurrency<Segment, number>(
           segments,
@@ -306,18 +324,58 @@ async function runPipeline(
             const bbox = assertBbox(segment.bbox);
             const segmentText = wordsInSegment(wordBoxes, bbox);
             const segmentWordBoxes = wordsForSegment(wordBoxes, bbox);
-            const classifyResult = await postPipelineWithRetry<{
+            if (!segmentText.trim()) {
+              console.info("[pipeline] lead skipped for segment", {
+                publicationId,
+                pageNumber: page.pageNumber,
+                bbox,
+                reason: "empty_segment_text",
+                wordBoxCount: segmentWordBoxes.length,
+              });
+              return 0;
+            }
+
+            let classifyResult: {
               is_lead: boolean;
               confidence?: number;
               prediction?: "positive" | "negative";
-            }>("/classify/lead", {
-              publication_id: publicationId,
-              page_number: page.pageNumber,
-              segment_bbox: bbox,
-              text: segmentText,
-            });
+              reasons?: string[];
+            };
+            try {
+              classifyResult = await postPipelineWithRetry<{
+                is_lead: boolean;
+                confidence?: number;
+                prediction?: "positive" | "negative";
+                reasons?: string[];
+              }>("/classify/lead", {
+                publication_id: publicationId,
+                page_number: page.pageNumber,
+                segment_bbox: bbox,
+                text: segmentText,
+              });
+            } catch (error) {
+              console.warn("[pipeline] lead skipped for segment", {
+                publicationId,
+                pageNumber: page.pageNumber,
+                bbox,
+                reason: "classification_request_failed",
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return 0;
+            }
 
-            if (!classifyResult.is_lead) return 0;
+            if (!classifyResult.is_lead) {
+              console.info("[pipeline] lead skipped for segment", {
+                publicationId,
+                pageNumber: page.pageNumber,
+                bbox,
+                reason: "classifier_rejected_segment",
+                prediction: classifyResult.prediction ?? null,
+                confidence: classifyResult.confidence ?? null,
+                classifierReasons: classifyResult.reasons ?? [],
+              });
+              return 0;
+            }
 
             const leadId = await ctx.runMutation(
               internal.publications.publicationMutations.createAiLead,
